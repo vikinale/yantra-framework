@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace System;
+namespace System\Http;
 
 use System\Core\Response as CoreResponse;
 use System\Hooks;

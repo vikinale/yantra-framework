@@ -4,7 +4,7 @@ namespace System\Helpers;
 
 use System\Exceptions\ValidationException;
 use System\Exceptions\CsrfException;
-use System\Request;
+use System\Http\Request;
 
 /**
  * Trait FormIntegrationTrait

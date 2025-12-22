@@ -1,5 +1,5 @@
 <?php
-namespace System;
+namespace System\Http;
 
 use System\Core\Request as CoreRequest;
 

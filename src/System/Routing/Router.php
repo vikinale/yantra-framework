@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Routing;
 
-use System\Request;
-use System\Response;
+use System\Http\Request;
+use System\Http\Response;
 
 /**
  * Router (per-method cached)

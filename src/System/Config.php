@@ -33,8 +33,8 @@ final class Config
         }
 
         // If the application defines a base-path constant, use it.
-        if (defined('YANTRA_BASEPATH') && is_string(constant('YANTRA_BASEPATH')) && constant('YANTRA_BASEPATH') !== '') {
-            return rtrim(constant('YANTRA_BASEPATH'), '/\\');
+        if (defined('APPPATH') && is_string(constant('APPPATH')) && constant('APPPATH') !== '') {
+            return rtrim(constant('APPPATH'), '/\\');
         }
 
         // Sensible fallback in library context.

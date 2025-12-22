@@ -6,8 +6,8 @@ namespace Core;
 use Exception;
 use System\Controllers\Controller;
 use System\Core\Response as CoreResponse;
-use System\Request;
-use System\Response;
+use System\Http\Request;
+use System\Http\Response;
 
 /**
  * BaseController
