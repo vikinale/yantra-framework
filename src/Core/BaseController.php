@@ -54,7 +54,7 @@ abstract class BaseController extends Controller
 
     protected function jsonSuccess(string $message, array $data = []): void
     {
-        $this->response->sendJson([
+        $this->response->json([
             'status'  => 'success',
             'message' => $message,
             'data'    => $data,
@@ -63,7 +63,7 @@ abstract class BaseController extends Controller
 
     protected function jsonError(string $message, array $data = []): void
     {
-        $this->response->sendJson([
+        $this->response->json([
             'status'  => 'error',
             'message' => $message,
             'data'    => $data,
@@ -72,7 +72,7 @@ abstract class BaseController extends Controller
 
     protected function jsonValidationError(array $errors, string $message): void
     {
-        $this->response->sendJson([
+        $this->response->json([
             'status'  => 'error',
             'message' => $message,
             'data'    => ['errors' => $errors]
@@ -95,15 +95,15 @@ abstract class BaseController extends Controller
             'data'    => $data,
         ];
 
-        // Prefer Response wrapper sendJson if present.
-        if (isset($this->response) && method_exists($this->response, 'sendJson')) {
-            // sendJson should handle status code
-            $this->response->sendJson($payload, $statusCode);
+        // Prefer Response wrapper json if present.
+        if (isset($this->response) && method_exists($this->response, 'json')) {
+            // json should handle status code
+            $this->response->json($payload, $statusCode);
             return;
         }
 
         // Otherwise use PSR response and attach headers.
-        $psr = $this->response->getCoreResponse()->json($payload, $statusCode);
+        $psr = $this->response->json($payload, $statusCode);
         foreach ($headers as $k => $v) {
             $psr = $psr->withHeader($k, (string)$v);
         }
@@ -144,7 +144,8 @@ abstract class BaseController extends Controller
                 $this->success([
                     'fileId' => $result['fileId'] ?? $fileId,
                     'index'  => $result['index'] ?? $index,
-                ], $result['message'] ?? 'Chunk stored', 200);
+                    'message'=> $result['message'] ?? 'Chunk stored'
+                ], 200);
                 return;
             }
 
@@ -201,7 +202,8 @@ abstract class BaseController extends Controller
                     'filename' => basename($result['path']),
                     'path'     => $result['path'],
                     'size'     => $result['size'],
-                ], $result['message'] ?? 'File assembled', 200);
+                    'message'  => $result['message'] ?? 'File assembled'
+                ], 200);
                 return;
             }
 

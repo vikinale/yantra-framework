@@ -1,33 +1,35 @@
 <?php
 declare(strict_types=1);
 
-namespace System\Helpers;
+namespace System\Http;
 
 use InvalidArgumentException;
 use JsonException;
 
 /**
- * JsonHelper (Yantra optimized)
+ * System\Http\Json
  *
- * Goals:
- *  - Predictable JSON encode/decode with strong defaults
- *  - Clear separation between "throwing" and "non-throwing" APIs
- *  - Robust error context without leaking huge payloads
+ * HTTP-focused JSON utilities:
+ *  - strict decode with clear error context
+ *  - tryDecode() for non-throwing flows
+ *  - encode() defaults suited for APIs (unescaped unicode/slashes)
+ *
+ * Notes:
+ *  - Does not read php://input directly to avoid hidden side effects.
+ *    Pass request body string explicitly from your Request class.
  */
-final class JsonHelper
+final class Json
 {
     /**
-     * Decode JSON string.
+     * Decode a JSON string (throws InvalidArgumentException on invalid JSON).
      *
      * @param string $json
-     * @param bool   $assoc          true => array, false => object
+     * @param bool   $assoc       true => array, false => object
      * @param int    $depth
-     * @param int    $flags          json_decode flags (JSON_THROW_ON_ERROR recommended)
-     * @param bool   $allowEmpty     if true, "" (after trim) returns [] or stdClass
+     * @param int    $flags       json_decode flags (JSON_THROW_ON_ERROR recommended)
+     * @param bool   $allowEmpty  if true, "" (after trim) returns [] or stdClass
      *
      * @return mixed
-     *
-     * @throws InvalidArgumentException
      */
     public static function decode(
         string $json,
@@ -57,14 +59,7 @@ final class JsonHelper
     }
 
     /**
-     * Decode JSON string but do not throw.
-     *
-     * @param string     $json
-     * @param bool       $assoc
-     * @param mixed      $default
-     * @param int        $depth
-     * @param int        $flags
-     * @param bool       $allowEmpty
+     * Decode JSON without throwing; returns $default on failure.
      */
     public static function tryDecode(
         string $json,
@@ -82,23 +77,16 @@ final class JsonHelper
     }
 
     /**
-     * Convenience: decode a HTTP request body.
-     * Typically you want allowEmpty=true to treat empty body as [].
+     * Convenience for request bodies:
+     * - Typically allowEmpty=true so empty body becomes [].
      */
-    public static function decodeBody(
-        string $body,
-        bool $assoc = true,
-        bool $allowEmpty = true
-    ): mixed {
+    public static function decodeBody(string $body, bool $assoc = true, bool $allowEmpty = true): mixed
+    {
         return self::decode($body, $assoc, 512, JSON_THROW_ON_ERROR, $allowEmpty);
     }
 
     /**
-     * Encode value to JSON string safely.
-     *
-     * Defaults:
-     *  - throw on error
-     *  - do not escape slashes/unicode
+     * Encode a value into JSON string with API-friendly defaults.
      *
      * @throws InvalidArgumentException
      */
@@ -120,7 +108,6 @@ final class JsonHelper
 
         try {
             $json = json_encode($value, $options, $depth);
-            // json_encode returns string when JSON_THROW_ON_ERROR is set, but be defensive
             if (!is_string($json)) {
                 throw new InvalidArgumentException('JSON encode failed: unknown error.');
             }
@@ -140,8 +127,7 @@ final class JsonHelper
     }
 
     /**
-     * Quick validation: returns true if $json is valid JSON.
-     * Empty string is treated as valid only if $allowEmpty=true.
+     * Validates JSON quickly. Empty string is valid only if $allowEmpty=true.
      */
     public static function isValid(string $json, bool $allowEmpty = true): bool
     {
@@ -159,19 +145,16 @@ final class JsonHelper
         }
     }
 
-    /**
-     * Create a safe error message including a small snippet for debugging.
-     */
     private static function buildDecodeError(JsonException $e, string $json): string
     {
         $snippet = $json;
 
-        // Avoid logging huge payloads; keep first 200 chars
+        // Cap to avoid huge payloads in logs
         if (strlen($snippet) > 200) {
             $snippet = substr($snippet, 0, 200) . '…';
         }
 
-        // Avoid newlines causing messy logs
+        // Avoid newline/tab issues in logs
         $snippet = str_replace(["\r", "\n", "\t"], ['\\r', '\\n', '\\t'], $snippet);
 
         return 'Invalid JSON: ' . $e->getMessage() . ' | snippet="' . $snippet . '"';

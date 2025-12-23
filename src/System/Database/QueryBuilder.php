@@ -1,803 +1,438 @@
 <?php
+declare(strict_types=1);
 
 namespace System\Database;
 
-use Exception;
-use PDO;
-use PDOStatement;
+use System\Database\Exceptions\QueryException;
+use System\Database\Support\Identifier;
 
-/**
- * Abstract class for building SQL queries.
- */
 abstract class QueryBuilder
 {
-    protected string $table;
-    protected string $primaryKey;
+    protected Database $db;
+
+    protected string $table = '';
+
+    /** @var array<int,string> */
+    protected array $select = ['*'];
+
+    /** @var array<int,string> */
+    protected array $selectRaw = [];
+
+    /** @var array<int,array{type:string,table:string,first:string,op:string,second:string}> */
+    protected array $joins = [];
+
+    /** @var array<int,array{boolean:string,column:string,operator:string,value:mixed}> */
+    protected array $wheres = [];
+
+    /** @var array<int,string> */
     protected array $groupBy = [];
+
+    /** @var array<int,array{column:string,direction:string}> */
+    protected array $orderBy = [];
+
+    protected ?int $limit = null;
+    protected ?int $offset = null;
+
+    /** @var array<string,mixed> */
     protected array $bindings = [];
-    private string $queryType;
-    private string|array $select = '*';
-    private array $selectRaw = [];
-    private array $where = [];
-    private array $orderBy = [];
-    private ?int $limit = null;
-    private ?int $offset = 0;
-    private array $joins = [];
-    private array $withClauses = [];
-    private array $insertData = [];
-    private array $updateData = [];
-    private string $softDeleteColumn = 'deleted';
-    private array $batchInsertData = [];
-    private array $onDuplicateKeyUpdate = [];
-    private bool $ignore = false;
-    private bool $distinct = false;
 
-    /**
-     * Sets the query type and resets the builder state.
-     *
-     * @param string $type The query type (select, insert, etc.)
-     * @return $this
-     */
-    public function query(string $type = "select"): self
-    {
-        $this->reset();
-        $this->queryType = $type;
-        return $this;
-    }
+    private int $pCounter = 0;
 
-    /**
-     * Resets the query builder state.
-     */
-    public function reset(string $type = "select"): static
+    public function reset(): void
     {
-        $this->select = '*';
-        $this->queryType = $type;
-        $this->where = [];
+        $this->select = ['*'];
+        $this->selectRaw = [];
+        $this->joins = [];
+        $this->wheres = [];
+        $this->groupBy = [];
         $this->orderBy = [];
         $this->limit = null;
-        $this->joins = [];
-        $this->withClauses = [];
-        $this->updateData = [];
-        $this->insertData = [];
-        $this->softDeleteColumn = 'deleted';
-        $this->batchInsertData = [];
-        $this->offset = 0;
-        $this->ignore = false;
+        $this->offset = null;
         $this->bindings = [];
-        $this->distinct = false;
+        $this->pCounter = 0;
+    }
+
+    public function from(string $table): static
+    {
+        $this->table = Identifier::table($table);
         return $this;
     }
 
-    /**
-     * @param string $type
-     * @return $this
-     */
-    public function _query(string $type = "select"): self
+    public function table(string $table): static
     {
-        $this->queryType = $type;
-        return $this;
+        return $this->from($table);
     }
 
-    /**
-     * Adds a raw SELECT part to the query.
-     *
-     * @param string $expression The raw SQL expression.
-     * @return $this
-     */
-    public function selectRaw(string $expression): self
+    public function select(string ...$columns): static
     {
-        $this->selectRaw[] = $expression;
-        return $this;
-    }
-
-    /**
-     * Sets the columns to select.
-     *
-     * @param string|array $columns The columns to select.
-     * @return $this
-     */
-    public function select(string|array $columns): self
-    {
-        $this->select = is_array($columns) ? implode(', ', $columns) : $columns;
-        return $this;
-    }
-
-    /**
-     * Sets the FROM table for the query.
-     *
-     * Note: This overrides the default $table value (usually set in a model).
-     *
-     * @param string $table
-     * @return $this
-     */
-    public function from(string $table): self
-    {
-        $this->table = $table;
-        return $this;
-    }
-
-    /**
-     * Convenience wrapper for AND WHERE condition.
-     *
-     * @param string $column
-     * @param string $operator
-     * @param mixed  $value
-     * @return static
-     */
-    public function andWhere(string $column, string $operator, mixed $value): static
-    {
-        return $this->where($column, $operator, $value, 'AND');
-    }
-
-
-    /**
-     * Sets the DISTINCT flag for the SELECT query.
-     *
-     * @return $this
-     */
-    public function distinct(): self
-    {
-        $this->distinct = true;
-        return $this;
-    }
-
-    /**
-     * Sets data for insert, update, or batchInsert queries.
-     *
-     * @param string $value The value to set.
-     * @return $this
-     */
-    public function set(string $column, string $value): self
-    {
-        if ($this->queryType == 'update') {
-            $this->updateData[$column] = $value;
-        } elseif ($this->queryType == 'insert') {
-            $this->insertData[$column] = $value;
+        if ($columns === []) {
+            $this->select = ['*'];
+            return $this;
         }
+
+        $this->select = Identifier::columnList($columns);
         return $this;
     }
 
     /**
-     * @param array $record
-     * @return $this
+     * Unsafe unless trusted input.
      */
-    public function setRecord(array $record): static
+    public function selectRaw(string $raw): static
     {
-        if ($this->queryType == 'batchInsert') {
-            $this->batchInsertData[] = $record;
-        } else if ($this->queryType == 'insert') {
-            $this->insertData[] = $record;
+        $raw = trim($raw);
+        if ($raw === '') {
+            throw new QueryException('selectRaw() cannot be empty.');
         }
+        $this->selectRaw[] = $raw;
         return $this;
     }
 
-    /**
-     * Sets the data for insert, update, or batchInsert queries.
-     *
-     * @param array $data The data to set.
-     * @return $this
-     */
-    public function data(array $data): self
+    public function join(string $table, string $first, string $operator, string $second, string $type = 'INNER'): static
     {
-        if ($this->queryType == 'update') {
-            $this->updateData = $data;
+        $type = strtoupper(trim($type));
+        if (!in_array($type, ['INNER', 'LEFT', 'RIGHT'], true)) {
+            throw new QueryException('Invalid join type.', ['type' => $type]);
         }
-        elseif ($this->queryType == 'insert') {
-            $this->insertData = $data;
-        } elseif ($this->queryType == 'batchInsert') {
-            $this->batchInsertData = $data;
+
+        $this->joins[] = [
+            'type'   => $type,
+            'table'  => Identifier::table($table),
+            'first'  => Identifier::column($first),
+            'op'     => Identifier::joinOperator($operator),
+            'second' => Identifier::column($second),
+        ];
+
+        return $this;
+    }
+
+    public function leftJoin(string $table, string $first, string $operator, string $second): static
+    {
+        return $this->join($table, $first, $operator, $second, 'LEFT');
+    }
+
+    public function where(string $column, string $operator, mixed $value, string $boolean = 'AND'): static
+    {
+        $boolean = strtoupper(trim($boolean));
+        if ($boolean !== 'OR') $boolean = 'AND';
+
+        $op = strtoupper(trim($operator));
+        $allowedOps = ['=', '!=', '<>', '<', '>', '<=', '>=', 'LIKE', 'NOT LIKE', 'IN', 'NOT IN', 'IS', 'IS NOT'];
+        if (!in_array($op, $allowedOps, true)) {
+            throw new QueryException('Invalid WHERE operator.', ['operator' => $operator]);
         }
+
+        $this->wheres[] = [
+            'boolean'  => $boolean,
+            'column'   => Identifier::column($column),
+            'operator' => $op,
+            'value'    => $value,
+        ];
+
         return $this;
     }
 
-    /**
-     * Sets the ignore flag for insert or batchInsert queries.
-     *
-     * @param bool $ignore Whether to ignore conflicts.
-     * @return $this
-     */
-    public function ignore(bool $ignore = true): self
-    {
-        $this->ignore = $ignore;
-        return $this;
-    }
-
-    /**
-     * Sets the on duplicate key update data for insert queries.
-     *
-     * @param array $data The data to update on duplicate key.
-     * @return $this
-     */
-    public function onDuplicateKeyUpdate(array $data): self
-    {
-        $this->onDuplicateKeyUpdate = $data;
-        return $this;
-    }
-    /**
-     * Clear ORDER BY clause.
-     *
-     * @return static
-     */
-    public function clearOrderBy(): static
-    {
-        $this->orderBy = [];
-        return $this;
-    }
-
-    /**
-     * Clear GROUP BY clause.
-     *
-     * @return static
-     */
-    public function clearGroupBy(): static
-    {
-        $this->groupBy = [];
-        return $this;
-    }
-
-    /**
-     * Clear LIMIT / OFFSET.
-     *
-     * @return static
-     */
-    public function clearLimitOffset(): static
-    {
-        $this->limit  = null;
-        $this->offset = 0;
-        return $this;
-    }
-
-    /**
-     * Adds an OR WHERE condition to the query.
-     *
-     * @param string $column The column name.
-     * @param string $operator The comparison operator.
-     * @param mixed $value The value to compare against.
-     * @return static
-     */
     public function orWhere(string $column, string $operator, mixed $value): static
     {
-        $this->validateColumnName($column);
-        $this->where[] = [
-            'column' => $column,
-            'operator' => $operator,
-            'value' => $value,
-            'logic' => 'OR'
+        return $this->where($column, $operator, $value, 'OR');
+    }
+
+    public function whereIn(string $column, array $values, string $boolean = 'AND'): static
+    {
+        return $this->where($column, 'IN', $values, $boolean);
+    }
+
+    public function whereNotIn(string $column, array $values, string $boolean = 'AND'): static
+    {
+        return $this->where($column, 'NOT IN', $values, $boolean);
+    }
+
+    public function groupBy(string ...$columns): static
+    {
+        if ($columns === []) return $this;
+        $this->groupBy = array_merge($this->groupBy, Identifier::columnList($columns));
+        return $this;
+    }
+
+    public function orderBy(string $column, string $direction = 'ASC'): static
+    {
+        $this->orderBy[] = [
+            'column'    => Identifier::column($column),
+            'direction' => Identifier::direction($direction),
         ];
         return $this;
     }
 
-    /**
-     * Adds a WHERE LIKE condition to the query.
-     *
-     * @param string $column The column name.
-     * @param string $value The value to search for.
-     * @param string $logic Logical operator AND / OR
-     * @return static
-     */
-    public function whereLike(string $column, string $value, string $logic = 'AND'): static
+    public function limit(int $limit): static
     {
-        $this->validateColumnName($column);
-        $this->where[] = [
-            'column' => $column,
-            'operator' => 'LIKE',
-            'value' => $value,
-            'logic' => $logic
-        ];
+        $this->limit = max(0, $limit);
         return $this;
     }
 
-    /**
-     * Adds a WHERE NOT LIKE condition to the query.
-     *
-     * @param string $column The column name.
-     * @param string $value The value to search for.
-     * @param string $logic Logical operator AND / OR
-     * @return static
-     */
-    public function whereNotLike(string $column, string $value, string $logic = 'AND'): static
+    public function offset(int $offset): static
     {
-        $this->validateColumnName($column);
-        $this->where[] = [
-            'column' => $column,
-            'operator' => 'NOT LIKE',
-            'value' => $value,
-            'logic' => $logic
-        ];
+        $this->offset = max(0, $offset);
         return $this;
     }
 
-    public function whereIn(string $column, array $values, string $logic = 'AND'): static
+    /** @return array<string,mixed> */
+    public function getBindings(): array
     {
-        $this->validateColumnName($column);
-        $this->where[] = [
-            'column' => $column,
-            'operator' => 'IN',
-            'value' => $values,
-            'logic' => $logic
-        ];
-        return $this;
-    }
-
-    public function whereNotIn(string $column, array $values, string $logic = 'AND'): static
-    {
-        $this->validateColumnName($column);
-        $this->where[] = [
-            'column' => $column,
-            'operator' => 'NOT IN',
-            'value' => $values,
-            'logic' => $logic
-        ];
-        return $this;
-    }
-
-    /**
-     * Sets the ORDER BY clause in the query.
-     *
-     * @param string $column The column to sort by.
-     * @param string $direction The sort direction (ASC or DESC).
-     * @return $this
-     */
-    public function orderBy(string $column, string $direction = 'ASC'): self
-    {
-        $this->validateColumnName($column);
-        $this->orderBy[] = "{$column} {$direction}";
-        return $this;
-    }
-
-    /**
-     * @param ...$columns
-     * @return $this
-     */
-    public function groupBy(...$columns): self
-    {
-        $this->groupBy = array_merge($this->groupBy, $columns);
-        return $this;
-    }
-
-    /**
-     * Sets the LIMIT clause in the query.
-     *
-     * @param int $limit The maximum number of rows to return.
-     * @return $this
-     */
-    public function limit(int $limit): self
-    {
-        $this->limit = $limit;
-        return $this;
-    }
-
-    /**
-     * Sets the OFFSET clause in the query.
-     *
-     * @param int $offset The number of rows to skip.
-     * @return $this
-     */
-    public function offset(int $offset): self
-    {
-        $this->offset = $offset;
-        return $this;
-    }
-
-    /**
-     * Adds a JOIN clause to the query.
-     *
-     * @param string $table The table to join.
-     * @param string $first The first column in the join condition.
-     * @param string $operator The comparison operator.
-     * @param string $second The second column in the join condition.
-     * @param string $type The type of join (INNER, LEFT, RIGHT, etc.).
-     * @return $this
-     */
-    public function join(string $table, string $first, string $operator, string $second, string $type = 'INNER'): self
-    {
-        // Table can be subquery, so avoid strict validation here.
-        $this->joins[] = compact('table', 'first', 'operator', 'second', 'type');
-        return $this;
-    }
-
-    /**
-     * Adds a WITH clause (Common Table Expression) to the query.
-     *
-     * @param string $cteName The name of the Common Table Expression.
-     * @param string $query The query defining the CTE.
-     * @return $this
-     */
-    public function with(string $cteName, string $query): self
-    {
-        $this->withClauses[$cteName] = $query;
-        return $this;
-    }
-
-    /**
-     * @throws Exception
-     */
-    public function getSql($type = null): string
-    {
-        if ($type != null) {
-            $this->queryType = $type;
-        }
-        return $this->build();
-    }
-
-    public function getBindings($type = null): array
-    {
-        if ($type != null) {
-            $this->queryType = $type;
-        }
         return $this->bindings;
     }
 
-    /**
-     * Builds and returns the SQL query string.
-     *
-     * @return string The generated SQL query.
-     * @throws Exception If the query type is unsupported.
-     */
-    public function build(): string
+    public function getSql(): string
     {
-        return match ($this->queryType) {
-            'select' => $this->buildSelectQuery(),
-            'insert' => $this->buildInsertQuery(),
-            'batchInsert' => $this->buildBatchInsertQuery(),
-            'update' => $this->buildUpdateQuery(),
-            'delete' => $this->buildDeleteQuery(),
-            'soft_delete' => $this->buildSoftDeleteQuery(),
-            default => throw new Exception("Unsupported query type '{$this->queryType}'"),
-        };
-    }
+        if ($this->table === '') {
+            throw new QueryException('No table set. Call table()/from() first.');
+        }
 
-    /**
-     * Builds a SELECT query string.
-     *
-     * @return string The generated SELECT query.
-     */
-    protected function buildSelectQuery(): string
-    {
-        $query = $this->buildWithClause();
-        $distinct = $this->distinct ? 'DISTINCT ' : '';
-        $query .= "SELECT $distinct" . $this->buildSelect() . " FROM {$this->table}";
+        $sql = 'SELECT ' . $this->buildSelectClause() . ' FROM ' . $this->table;
 
-        if (!empty($this->joins)) {
-            foreach ($this->joins as $join) {
-                $query .= " {$join['type']} JOIN {$join['table']} ON {$join['first']} {$join['operator']} {$join['second']}";
+        if ($this->joins !== []) {
+            $sql .= ' ' . $this->buildJoinClause();
+        }
+
+        $where = $this->buildWhereClause();
+        if ($where !== '') {
+            $sql .= ' ' . $where;
+        }
+
+        if ($this->groupBy !== []) {
+            $sql .= ' GROUP BY ' . implode(', ', $this->groupBy);
+        }
+
+        if ($this->orderBy !== []) {
+            $parts = [];
+            foreach ($this->orderBy as $o) {
+                $parts[] = $o['column'] . ' ' . $o['direction'];
             }
+            $sql .= ' ORDER BY ' . implode(', ', $parts);
         }
 
-        $query .= $this->buildWhereClause();
-
-        if (!empty($this->groupBy)) {
-            $query .= " GROUP BY " . implode(', ', $this->groupBy);
+        if ($this->limit !== null) {
+            $sql .= ' LIMIT ' . (int)$this->limit;
+        }
+        if ($this->offset !== null) {
+            $sql .= ' OFFSET ' . (int)$this->offset;
         }
 
-        if (!empty($this->orderBy)) {
-            $query .= " ORDER BY " . implode(', ', $this->orderBy);
-        }
-
-        if (!is_null($this->limit)) {
-            $query .= " LIMIT {$this->limit}";
-
-            // Only add OFFSET if LIMIT is set
-            if (!is_null($this->offset)) {
-                $query .= " OFFSET {$this->offset}";
-            }
-        }
-
-        return $query;
+        return $sql;
     }
 
-    /**
-     * Builds the WITH clause.
-     *
-     * @return string The generated WITH clause.
-     */
-    private function buildWithClause(): string
+    /** @return array<int,array<string,mixed>> */
+    public function get(): array
     {
-        $query = '';
+        $sql = $this->getSql();
+        return $this->db->fetchAll($sql, $this->bindings);
+    }
 
-        if (!empty($this->withClauses)) {
-            $query .= 'WITH ';
-            $cteQueries = [];
-            foreach ($this->withClauses as $cteName => $cteQuery) {
-                $cteQueries[] = "{$cteName} AS ({$cteQuery})";
-            }
-            $query .= implode(', ', $cteQueries) . ' ';
+    /** @return array<string,mixed>|null */
+    public function first(): ?array
+    {
+        $clone = clone $this;
+        $clone->limit(1);
+        $sql = $clone->getSql();
+        return $this->db->fetch($sql, $clone->bindings);
+    }
+
+    /**
+     * Insert (safe: validates columns)
+     * @param array<string,mixed> $data
+     */
+    public function insert(array $data): bool
+    {
+        if ($this->table === '') {
+            throw new QueryException('No table set. Call table()/from() first.');
+        }
+        if ($data === []) {
+            throw new QueryException('Insert data cannot be empty.');
         }
 
-        return $query;
+        $cols = [];
+        $placeholders = [];
+        $bindings = [];
+
+        foreach ($data as $col => $val) {
+            if (!is_string($col)) {
+                throw new QueryException('Insert column must be string.');
+            }
+            $col = Identifier::column($col);
+            // Disallow dotted column names in insert/update columns for safety
+            if (str_contains($col, '.')) {
+                throw new QueryException('Insert column cannot include table prefix.', ['column' => $col]);
+            }
+
+            $p = $this->nextPlaceholder();
+            $cols[] = $col;
+            $placeholders[] = $p;
+            $bindings[substr($p, 1)] = $val;
+        }
+
+        $sql = 'INSERT INTO ' . $this->table
+            . ' (' . implode(', ', $cols) . ') VALUES (' . implode(', ', $placeholders) . ')';
+
+        $this->db->execute($sql, $bindings);
+        return true;
     }
 
     /**
-     * Builds the SELECT part of the query.
-     *
-     * @return string The generated SELECT part.
+     * Update (safe: validates columns)
+     * @param array<string,mixed> $data
      */
-    protected function buildSelect(): string
+    public function update(array $data): int
     {
-        $selectParts = is_array($this->select) ? $this->select : [$this->select];
-        $selectParts = array_merge($selectParts, $this->selectRaw);
-        return implode(', ', $selectParts);
+        if ($this->table === '') {
+            throw new QueryException('No table set. Call table()/from() first.');
+        }
+        if ($data === []) {
+            throw new QueryException('Update data cannot be empty.');
+        }
+
+        $sets = [];
+        $bindings = [];
+
+        foreach ($data as $col => $val) {
+            if (!is_string($col)) {
+                throw new QueryException('Update column must be string.');
+            }
+            $col = Identifier::column($col);
+            if (str_contains($col, '.')) {
+                throw new QueryException('Update column cannot include table prefix.', ['column' => $col]);
+            }
+
+            $p = $this->nextPlaceholder();
+            $sets[] = $col . ' = ' . $p;
+            $bindings[substr($p, 1)] = $val;
+        }
+
+        $where = $this->buildWhereClause();
+        if ($where === '') {
+            throw new QueryException('Refusing to UPDATE without WHERE clause.');
+        }
+
+        $sql = 'UPDATE ' . $this->table . ' SET ' . implode(', ', $sets) . ' ' . $where;
+
+        // merge where bindings
+        $bindings = $bindings + $this->bindings;
+
+        $stmt = $this->db->execute($sql, $bindings);
+        return $stmt->rowCount();
     }
 
-    /**
-     * Builds the WHERE clause.
-     *
-     * @return string The generated WHERE clause.
-     */
+    public function delete(): int
+    {
+        if ($this->table === '') {
+            throw new QueryException('No table set. Call table()/from() first.');
+        }
+
+        $where = $this->buildWhereClause();
+        if ($where === '') {
+            throw new QueryException('Refusing to DELETE without WHERE clause.');
+        }
+
+        $sql = 'DELETE FROM ' . $this->table . ' ' . $where;
+        $stmt = $this->db->execute($sql, $this->bindings);
+        return $stmt->rowCount();
+    }
+
+    public function count(string $column = '*'): int
+    {
+        if ($this->table === '') {
+            throw new QueryException('No table set. Call table()/from() first.');
+        }
+
+        $col = ($column === '*') ? '*' : Identifier::column($column);
+        $sql = 'SELECT COUNT(' . $col . ') AS c FROM ' . $this->table;
+
+        if ($this->joins !== []) {
+            $sql .= ' ' . $this->buildJoinClause();
+        }
+
+        $where = $this->buildWhereClause();
+        if ($where !== '') {
+            $sql .= ' ' . $where;
+        }
+
+        $row = $this->db->fetch($sql, $this->bindings);
+        return (int)($row['c'] ?? 0);
+    }
+
+    /* ----------------- internal builders ----------------- */
+
+    private function buildSelectClause(): string
+    {
+        $parts = [];
+
+        foreach ($this->select as $c) {
+            $parts[] = $c;
+        }
+        foreach ($this->selectRaw as $raw) {
+            $parts[] = $raw; // raw is explicit & trusted by caller
+        }
+
+        return implode(', ', $parts);
+    }
+
+    private function buildJoinClause(): string
+    {
+        $parts = [];
+        foreach ($this->joins as $j) {
+            $parts[] = $j['type'] . ' JOIN ' . $j['table'] . ' ON ' . $j['first'] . ' ' . $j['op'] . ' ' . $j['second'];
+        }
+        return implode(' ', $parts);
+    }
+
     private function buildWhereClause(): string
     {
-        if (empty($this->where)) {
+        $this->bindings = []; // rebuild each time from wheres
+        if ($this->wheres === []) {
             return '';
         }
 
         $clauses = [];
-        foreach ($this->where as $index => $condition) {
-            $logic = $index > 0 ? " {$condition['logic']} " : '';
 
-            if (isset($condition['operator']) && isset($condition['value'])) {
-                if (in_array($condition['operator'], ['IN', 'NOT IN'])) {
-                    // Handle IN and NOT IN with array values
-                    $placeholders = implode(', ', array_map(fn($i) => ":where_{$index}_{$i}", array_keys($condition['value'])));
-                    $clauses[] = "{$logic}{$condition['column']} {$condition['operator']} ($placeholders)";
-                    foreach ($condition['value'] as $i => $val) {
-                        $this->bindings[":where_{$index}_{$i}"] = $val;
-                    }
-                } else {
-                    // For other operators (LIKE, =, etc.)
-                    $clauses[] = "{$logic}{$condition['column']} {$condition['operator']} :where_{$index}";
-                    $this->bindings[":where_{$index}"] = $condition['value'];
+        foreach ($this->wheres as $i => $w) {
+            $boolean = ($i === 0) ? '' : (' ' . $w['boolean'] . ' ');
+            $col = $w['column'];
+            $op  = $w['operator'];
+            $val = $w['value'];
+
+            if ($op === 'IN' || $op === 'NOT IN') {
+                if (!is_array($val) || $val === []) {
+                    // IN () is invalid; force false/true depending on operator
+                    $clauses[] = $boolean . ($op === 'IN' ? '1=0' : '1=1');
+                    continue;
                 }
-            } else {
-                $clauses[] = "{$logic}{$condition['column']}";
+                $phs = [];
+                foreach ($val as $v) {
+                    $p = $this->nextPlaceholder();
+                    $phs[] = $p;
+                    $this->bindings[substr($p, 1)] = $v;
+                }
+                $clauses[] = $boolean . $col . ' ' . $op . ' (' . implode(', ', $phs) . ')';
+                continue;
             }
-        }
 
-        return ' WHERE ' . implode(' ', $clauses);
-    }
-
-    /**
-     * Builds an INSERT query string.
-     *
-     * @return string The generated INSERT query.
-     */
-    protected function buildInsertQuery(): string
-    {
-        $query = $this->ignore ? 'INSERT IGNORE INTO' : 'INSERT INTO';
-        $query .= " {$this->table} (";
-
-        $columns = implode(', ', array_keys($this->insertData));
-        $placeholders = ':' . implode(', :', array_keys($this->insertData));
-
-        $query .= "{$columns}) VALUES ({$placeholders})";
-        if (!empty($this->onDuplicateKeyUpdate)) {
-            $updatePairs = [];
-            foreach ($this->onDuplicateKeyUpdate as $column => $value) {
-                $updatePairs[] = "{$column} = :duplicate_{$column}";
-                $this->bindings[":duplicate_{$column}"] = $value;
+            if ($op === 'IS' || $op === 'IS NOT') {
+                if ($val === null) {
+                    $clauses[] = $boolean . $col . ' ' . $op . ' NULL';
+                    continue;
+                }
+                // If someone tries IS 'x', treat as normal comparison to avoid odd SQL
+                $op = ($op === 'IS') ? '=' : '!=';
             }
-            $query .= ' ON DUPLICATE KEY UPDATE ' . implode(', ', $updatePairs);
+
+            $p = $this->nextPlaceholder();
+            $this->bindings[substr($p, 1)] = $val;
+            $clauses[] = $boolean . $col . ' ' . $op . ' ' . $p;
         }
 
-        // Bind values for insertData
-        foreach ($this->insertData as $column => $value) {
-            $this->bindings[":{$column}"] = $value;
-        }
-
-        return $query;
+        return 'WHERE ' . implode('', $clauses);
     }
 
-    /**
-     * Builds a batch INSERT query string.
-     *
-     * @return string The generated batch INSERT query.
-     */
-    protected function buildBatchInsertQuery(): string
+    private function nextPlaceholder(): string
     {
-        if (empty($this->batchInsertData)) {
-            throw new Exception('batchInsert data empty');
-        }
-
-        $query = $this->ignore ? 'INSERT IGNORE INTO' : 'INSERT INTO';
-        $query .= " {$this->table} (";
-
-        $columns = array_keys(reset($this->batchInsertData));
-        $query .= implode(', ', $columns) . ') VALUES ';
-
-        $rows = [];
-        foreach ($this->batchInsertData as $index => $row) {
-            $placeholders = array_map(fn($col) => ":batch_{$index}_{$col}", array_keys($row));
-            $rows[] = '(' . implode(', ', $placeholders) . ')';
-        }
-
-        $query .= implode(', ', $rows);
-
-        // Bind values for batchInsertData
-        foreach ($this->batchInsertData as $index => $row) {
-            foreach ($row as $column => $value) {
-                $this->bindings[":batch_{$index}_{$column}"] = $value;
-            }
-        }
-
-        return $query;
-    }
-
-    /**
-     * Builds an UPDATE query string.
-     *
-     * @return string The generated UPDATE query.
-     */
-    protected function buildUpdateQuery(): string
-    {
-        $query = "UPDATE {$this->table} SET ";
-
-        $updates = [];
-        foreach ($this->updateData as $column => $value) {
-            if ($this->primaryKey != $column) {
-                $updates[] = "{$column} = :update_{$column}";
-                $this->bindings[":update_{$column}"] = $value;
-            } else {
-                $this->where($column, '=', $value);
-            }
-        }
-
-        $query .= implode(', ', $updates);
-
-        $query .= $this->buildWhereClause();
-
-        return $query;
-    }
-
-    /**
-     * Adds a WHERE condition to the query.
-     *
-     * @param string $column The column name.
-     * @param string|null $operator The comparison operator.
-     * @param mixed $value The value to compare against.
-     * @param string $logic The logical operator (AND / OR).
-     * @return $this
-     */
-    public function where(string $column, string $operator = null, mixed $value = null, string $logic = 'AND'): self
-    {
-        // validate simple column names (allow dot for table alias like p.id)
-        $this->validateColumnName($column);
-        if ($operator == null) {
-            $this->where[] = compact('column', 'logic');
-        } else {
-            $this->where[] = compact('column', 'operator', 'value', 'logic');
-        }
-        return $this;
-    }
-
-    /**
-     * Builds a DELETE query string.
-     *
-     * @return string The generated DELETE query.
-     */
-    protected function buildDeleteQuery(): string
-    {
-        $query = "DELETE FROM {$this->table}";
-        $query .= $this->buildWhereClause();
-        return $query;
-    }
-
-    /**
-     * Builds a soft delete query string.
-     *
-     * @return string The generated soft delete query.
-     */
-    protected function buildSoftDeleteQuery(): string
-    {
-        $query = "UPDATE {$this->table} SET {$this->softDeleteColumn} = 1";
-        $query .= $this->buildWhereClause();
-        return $query;
-    }
-
-    /**
-     * @throws Exception
-     */
-    public function getResult(int $mode = PDO::FETCH_OBJ): mixed
-    {
-        try {
-            $statement = $this->executeQuery();
-            return $statement->fetch($mode);
-        } catch (Exception $e) {
-            throw new Exception("Database Exception: QueryBuilder->getResult \n" . $e->getMessage());
-        }
-    }
-
-    /**
-     * Executes the built query and returns the statement.
-     *
-     * @return PDOStatement The prepared statement.
-     * @throws Exception If the query execution fails.
-     */
-    public function executeQuery(): PDOStatement
-    {
-        $statement = $this->statement();
-        if ($statement === false || !($statement instanceof PDOStatement)) {
-            throw new Exception("Failed to prepare statement.");
-        }
-
-        // Execute with no params because we bound all named params in statement()
-        if ($statement->execute() === false) {
-            $err = $statement->errorInfo();
-            throw new Exception('Query execution failed: ' . implode(', ', $err) . "\nSQL: " . $this->build());
-        }
-        $this->reset();
-        return $statement;
-    }
-
-    /**
-     * Prepare statement and bind values.
-     *
-     * @throws Exception
-     */
-    public function statement(): PDOStatement
-    {
-        $query = $this->build();
-        $statement = $this->prepare($query);
-        if ($statement === false || !($statement instanceof PDOStatement)) {
-            throw new Exception("PDO prepare returned invalid statement for SQL: " . $query);
-        }
-
-        foreach ($this->bindings as $key => $value) {
-            // PDO bindValue expects parameter name with leading colon for named placeholders
-            $statement->bindValue($key, $value);
-        }
-
-        return $statement;
-    }
-
-    /**
-     * Prepare must be implemented by subclasses and should return a PDOStatement.
-     *
-     * @param string $query
-     * @param array $options
-     * @return PDOStatement
-     */
-    abstract protected function prepare(string $query, array $options = []): PDOStatement;
-
-    /**
-     * @throws Exception
-     */
-    public function getResults(int $mode = PDO::FETCH_ASSOC): array
-    {
-        try {
-            $statement = $this->executeQuery();
-            $rows = $statement->fetchAll($mode);
-            return $rows === false ? [] : $rows;
-        } catch (Exception $e) {
-            throw new Exception("Database Exception: QueryBuilder->getResults \n" . $e->getMessage());
-        }
-    }
-
-    /**
-     * @throws Exception
-     */
-    public function count(): int
-    {
-        $statement = $this->executeQuery();
-        return $statement->rowCount();
-    }
-
-    /**
-     * Return last insert id as string (subclasses should return matching type).
-     *
-     * @return string
-     */
-    abstract public function lastInsertId(): string;
-
-    /**
-     * Basic validation for column identifiers (allow dot for table aliases).
-     * This is a simple guard — if you need complex expressions, avoid this validation or extend it.
-     *
-     * @param string $col
-     * @throws Exception
-     */
-    protected function validateColumnName(string $col): void
-    {
-        if (preg_match('/^[\w\.]+$/', $col) !== 1) {
-            throw new Exception("Invalid column identifier: {$col}");
-        }
+        $name = 'p' . $this->pCounter++;
+        return ':' . $name;
     }
 }

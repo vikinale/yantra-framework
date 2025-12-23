@@ -3,176 +3,133 @@ declare(strict_types=1);
 
 namespace System\Controllers;
 
-use DateTimeInterface;
 use Exception;
 use InvalidArgumentException;
-use Nyholm\Psr7\Factory\Psr17Factory;
 use Psr\Http\Message\ResponseInterface;
 use System\Http\Request;
 use System\Http\Response;
-use System\Helpers\FormHelper;
+use System\Http\Json;
+use System\Http\ApiResponse;
+use System\Security\Csrf;
+use System\Security\Crypto;
 use System\Helpers\UrlHelper;
 use System\Helpers\OriginHelper;
-use System\Helpers\JsonHelper;
 use System\Helpers\DateHelper;
 use System\Helpers\UploadHelper;
 use System\Helpers\PathHelper;
-use System\Helpers\ArrayHelper;
-use System\Helpers\SecurityHelper;
 
 /**
- * Class Controller
+ * Base Controller (Yantra optimized)
  *
- * Refactored controller: delegates low-level work to helpers.
- * Keeps the same behavior as the original class you provided but
- * moves direct session/files/CSRF/date/upload logic into helpers.
- *
- * Subclasses that relied on protected utility methods (toMysqlDate, emitPsrResponse, etc.)
- * will continue to work.
+ * Key principles:
+ *  - No session_start() here (bootstrap should init SessionStore)
+ *  - Avoid mixed response pipelines; provide safe helpers
+ *  - Same-origin + CSRF for browser "unsafe" methods (optional)
  */
-class Controller
+abstract class Controller
 {
     protected Request $request;
     protected Response $response;
 
-    /** Prefer JSON when denying */
-    protected bool $denyWithJson = true;
-
-    /**
-     * Constructor - preserves injection of Request + Response.
-     *
-     * @throws Exception
-     */
     public function __construct(Request $request, Response $response)
     {
         $this->request  = $request;
         $this->response = $response;
 
         $this->init();
-        $this->ensureSession();
-        $this->ensureCsrfToken();
     }
 
     /**
-     * Lightweight init hook (theme / env)
+     * Override in derived controllers if needed.
      */
-    private function init(): void
-{
-    // Reserved for application-level initialization (e.g., DI container wiring, view/theme setup).
-}
-
-/* -----------------------
-     * Session helpers
-     * ---------------------- */
-
-    /**
-     * Ensure PHP session is started.
-     */
-    protected function ensureSession(): void
+    protected function init(): void
     {
-        if (session_status() !== PHP_SESSION_ACTIVE) {
-            @session_start();
-        }
+        // no-op
     }
 
-    /* -----------------------
-     * CSRF helpers (delegated)
-     * ---------------------- */
+    /* ---------------------------------------------------------------------
+     * CSRF (framework primitive)
+     * --------------------------------------------------------------------- */
 
     /**
-     * Ensure CSRF token exists (delegates to FormHelper).
+     * Ensure CSRF token exists (returns token).
+     * Useful for web pages that render forms.
      */
-    protected function ensureCsrfToken(): void
+    protected function ensureCsrfToken(string $key = 'default'): string
     {
-        // FormHelper::generateCsrfToken is idempotent in practice (ensures a token exists)
-        FormHelper::generateCsrfToken();
+        return Csrf::token($key);
     }
 
-    /**
-     * Return a CSRF token suitable for embedding.
-     */
-    public function csrfToken(): string
+    protected function csrfToken(string $key = 'default'): string
     {
-        // generate or return current token (FormHelper returns token string)
-        return FormHelper::generateCsrfToken();
+        return Csrf::token($key);
+    }
+
+    protected function regenerateCsrf(string $key = 'default'): string
+    {
+        // Simple: clear and re-issue
+        Csrf::clear($key);
+        return Csrf::token($key);
+    }
+
+    protected function validateCsrf(?string $token, string $key = 'default', bool $rotateOnSuccess = true): bool
+    {
+        return Csrf::validate((string)($token ?? ''), $key, $rotateOnSuccess);
     }
 
     /**
-     * Regenerate CSRF token immediately.
+     * Enforce CSRF for unsafe methods (POST/PUT/PATCH/DELETE).
+     * If invalid -> deny 403.
      */
-    public function regenerateCsrf(): void
+    protected function verifyCsrfTokenOrDeny(string $key = 'default'): void
     {
-        FormHelper::generateCsrfToken(); // will create a fresh token
-    }
-
-    /**
-     * Validate token (delegates to FormHelper).
-     */
-    public function validateCsrf(?string $token = null): bool
-    {
-        return FormHelper::validateCsrfToken($token);
-    }
-
-    /**
-     * Verify CSRF for unsafe HTTP methods or deny.
-     */
-    protected function verifyCsrfTokenOrDeny(): void
-    {
-        $method = strtoupper($this->request->getMethod() ?? 'GET');
-
-        if (!in_array($method, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+        $method = strtoupper($this->request->getMethod());
+        if (in_array($method, ['GET', 'HEAD', 'OPTIONS'], true)) {
             return;
         }
 
-        if (!FormHelper::validateCsrfToken(null)) {
-            $this->deny('Invalid or missing CSRF token', 403);
+        $token =
+            $_POST['_csrf_token'] ??
+            ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? null) ??
+            ($this->getHeader('X-CSRF-Token') ?? null);
+
+        if (!$this->validateCsrf(is_string($token) ? $token : null, $key, true)) {
+            $this->deny('CSRF token invalid.', 403);
         }
     }
 
-    /* -----------------------
-     * CORS / Origin helpers (delegated)
-     * ---------------------- */
+    /* ---------------------------------------------------------------------
+     * Origin / Access checks (web default)
+     * --------------------------------------------------------------------- */
 
     /**
-     * Handle OPTIONS preflight: same-origin allowed, cross-origin denied.
+     * Handle OPTIONS preflight cheaply (web-friendly default).
+     * For API-grade CORS use System\Security\Cors via middleware.
      */
     protected function handlePreflight(): void
     {
-        $method = strtoupper($this->request->getMethod() ?? 'GET');
+        $method = strtoupper($this->request->getMethod());
         if ($method !== 'OPTIONS') {
             return;
         }
 
-        $origin = $this->getHeader('Origin') ?? null;
-        if ($origin === null) {
-            // no origin -> non-browser invocation: emit 200
-            $resp = $this->response->getCoreResponse()->withStatus(200);
-            $this->emitPsrResponse($resp, true);
-        }
+        // Minimal: allow browser preflight to continue if same-origin
+        $this->verifySameOrigin();
 
-        if (!OriginHelper::isSameOrigin($origin, $this->getSiteOrigin())) {
-            $this->deny('CORS preflight denied: cross-origin not allowed', 403);
-        }
-
-        $resp = $this->response->getCoreResponse()
-            ->withHeader('Access-Control-Allow-Origin', $origin)
-            ->withHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS')
-            ->withHeader('Access-Control-Allow-Headers', 'Content-Type, X-CSRF-Token, X-Internal-Call')
-            ->withHeader('Access-Control-Allow-Credentials', 'true')
-            ->withStatus(204);
-
-        $this->emitPsrResponse($resp, true);
+        $this->status(204);
+        $this->header('Content-Length', '0');
+        $this->terminate();
     }
 
     /**
-     * Verify access controls:
-     *  - allow CLI
-     *  - allow internal gateway header
-     *  - otherwise require same-origin and CSRF for unsafe methods
+     * Basic request verification:
+     * - Allow CLI
+     * - If X-Internal-Call header exists, it must be "1" or "true"
+     * - Otherwise enforce same-origin + CSRF for unsafe methods
      */
     protected function verifyAccess(): void
     {
-        if (php_sapi_name() === 'cli' || defined('STDIN')) {
+        if (PHP_SAPI === 'cli' || defined('STDIN')) {
             return;
         }
 
@@ -189,337 +146,277 @@ class Controller
         $this->verifyCsrfTokenOrDeny();
     }
 
-    /**
-     * Verify same-origin using Origin or Referer header (delegates origin comparison).
-     */
     protected function verifySameOrigin(): void
     {
-        $origin  = $this->getHeader('Origin') ?? null;
-        $referer = $this->getHeader('Referer') ?? null;
+        $origin     = $this->getHeader('Origin');
+        $referer    = $this->getHeader('Referer');
         $siteOrigin = $this->getSiteOrigin();
 
-        if ($origin) {
+        // If Origin present: enforce it strictly
+        if (is_string($origin) && $origin !== '') {
             if (!OriginHelper::isSameOrigin($origin, $siteOrigin)) {
                 $this->deny('Cross-origin requests are not allowed', 403);
             }
 
-            // add CORS header and continue
-            $this->response->getCoreResponse()
-                ->withHeader('Access-Control-Allow-Origin', $origin)
-                ->withHeader('Access-Control-Allow-Credentials', 'true');
-
+            // Best-effort: echo allowed origin for same-origin scenarios
+            $this->header('Access-Control-Allow-Origin', $origin);
+            $this->header('Access-Control-Allow-Credentials', 'true');
+            $this->header('Vary', 'Origin');
             return;
         }
 
-        if ($referer) {
+        // If no Origin, fall back to Referer for browser POSTs (best-effort)
+        if (is_string($referer) && $referer !== '') {
             if (!OriginHelper::isSameOrigin($referer, $siteOrigin)) {
-                $this->deny('Invalid referer', 403);
+                $this->deny('Cross-origin requests are not allowed', 403);
             }
-            return;
         }
-
-        $this->deny('Missing Origin/Referer header', 403);
     }
 
-    /**
-     * Determine whether a provided origin or URL matches site origin.
-     */
-    protected function isSameOrigin(string $originOrUrl): bool
+    protected function isSameOrigin(string $a, string $b): bool
     {
-        return OriginHelper::isSameOrigin($originOrUrl, $this->getSiteOrigin());
+        return OriginHelper::isSameOrigin($a, $b);
     }
 
     /**
-     * Build current site origin: scheme://host[:port]
-     *
-     * Note: this mirrors previous behavior but is isolated here for clarity.
+     * Derive site origin from server vars.
      */
     protected function getSiteOrigin(): string
     {
         $server = $_SERVER;
-        $isHttps = (!empty($server['HTTPS']) && $server['HTTPS'] !== 'off') || ($server['SERVER_PORT'] ?? '') === '443';
+
+        $isHttps = (!empty($server['HTTPS']) && $server['HTTPS'] !== 'off')
+            || (($server['SERVER_PORT'] ?? '') === '443');
+
         $scheme = $isHttps ? 'https' : 'http';
 
         $hostHeader = $server['HTTP_HOST'] ?? ($server['SERVER_NAME'] ?? 'localhost');
-        $hostParts = explode(':', (string)$hostHeader);
-        $host = $hostParts[0];
-        $port = $hostParts[1] ?? ($server['SERVER_PORT'] ?? null);
+        $hostParts  = explode(':', (string)$hostHeader);
+        $host       = $hostParts[0];
+        $port       = $hostParts[1] ?? ($server['SERVER_PORT'] ?? null);
 
-        $origin = $scheme . '://' . $host;
-        if ($port && !in_array((int)$port, [80, 443], true)) {
-            $origin .= ':' . $port;
-        }
+        $defaultPort = $isHttps ? '443' : '80';
+        $portPart = ($port !== null && (string)$port !== '' && (string)$port !== $defaultPort)
+            ? ':' . $port
+            : '';
 
-        return $origin;
+        return $scheme . '://' . $host . $portPart;
     }
 
-    /* -----------------------
+    /* ---------------------------------------------------------------------
      * Header helpers
-     * ---------------------- */
+     * --------------------------------------------------------------------- */
 
-    /**
-     * Get header value. Preference:
-     *  - Request->getHeader() (PSR wrapper)
-     *  - $_SERVER HTTP_...
-     */
     protected function getHeader(string $name): ?string
     {
-        if (isset($this->request) && method_exists($this->request, 'getHeader')) {
-            $val = $this->request->getHeader($name);
-            if ($val !== null && $val !== '') {
-                return (string)$val;
+        // Prefer request header access if available
+        if (method_exists($this->request, 'getHeader')) {
+            $v = $this->request->getHeader($name);
+            if (is_string($v) && $v !== '') return $v;
+        }
+
+        // PSR request if present
+        if (method_exists($this->request, 'getPsrRequest')) {
+            $psr = $this->request->getPsrRequest();
+            if ($psr && method_exists($psr, 'getHeaderLine')) {
+                $line = trim((string)$psr->getHeaderLine($name));
+                if ($line !== '') return $line;
             }
         }
 
+        // Fallback to $_SERVER
         $key = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
-        if (isset($_SERVER[$key]) && $_SERVER[$key] !== '') {
-            return (string)$_SERVER[$key];
+        if (isset($_SERVER[$key])) {
+            return trim((string)$_SERVER[$key]);
         }
 
-        if (isset($_SERVER[$name]) && $_SERVER[$name] !== '') {
-            return (string)$_SERVER[$name];
+        // Common alt var
+        if (strcasecmp($name, 'Authorization') === 0 && isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+            return trim((string)$_SERVER['REDIRECT_HTTP_AUTHORIZATION']);
         }
 
         return null;
     }
 
-    /* -----------------------
-     * Deny / success / error helpers (lean)
-     * ---------------------- */
+    /* ---------------------------------------------------------------------
+     * Response helpers (consistent + safe)
+     * --------------------------------------------------------------------- */
 
-    /**
-     * Deny the request with message. Prefer JSON when possible.
-     */
-    protected function deny(string $message = 'Forbidden', int $status = 403): void
+    protected function header(string $name, string $value): void
     {
-        $payload = ['status' => 'error', 'message' => $message];
-
-        if ($this->denyWithJson && isset($this->response) && method_exists($this->response, 'sendJson')) {
-            $this->response->sendJson($payload, $status);
+        if (method_exists($this->response, 'withHeader')) {
+            $this->response->withHeader($name, $value);
             return;
         }
+        header($name . ': ' . $value, true);
+    }
 
-        $psr = $this->response->getCoreResponse()
-            ->withHeader('Content-Type', 'text/plain; charset=utf-8')
-            ->withBody((new Psr17Factory())->createStream((string)$message))
-            ->withStatus($status);
-
-        $this->emitPsrResponse($psr, true);
+    protected function status(int $code): void
+    {
+        if (method_exists($this->response, 'withStatus')) {
+            $this->response->withStatus($code);
+            return;
+        }
+        http_response_code($code);
     }
 
     /**
-     * Send success payload (delegates to Response when available).
-     *
-     * @param mixed $payload
-     * @param string $message
-     * @param int $status
+     * Deny request with JSON by default (safe base behavior).
      */
-    protected function success($payload = [], string $message = 'OK', int $status = 200): void
+    protected function deny(string $message, int $status = 403, array $meta = []): void
     {
-        $data = ['status' => 'success', 'message' => $message, 'data' => $payload];
-
-        if (isset($this->response) && method_exists($this->response, 'sendJson')) {
-            $this->response->sendJson($data, $status);
-            return;
-        }
-
-        $psr = $this->response->getCoreResponse()->json($data, $status);
-        $this->emitPsrResponse($psr, true);
+        ApiResponse::error($this->response, 'forbidden', $message, $status, $meta);
+        $this->terminate();
     }
 
-    /**
-     * Send error payload.
-     */
-    protected function error(string $message = 'Error', int $status = 400, $payload = null): void
-    {
-        $respArr = ['status' => 'error', 'message' => $message];
-        if ($payload !== null) $respArr['data'] = $payload;
-
-        if (isset($this->response) && method_exists($this->response, 'sendJson')) {
-            $this->response->sendJson($respArr, $status);
-            return;
-        }
-
-        $psr = $this->response->getCoreResponse()->json($respArr, $status);
-        $this->emitPsrResponse($psr, true);
-    }
-
-    protected function jsonErrorResponse(string $message, int $statusCode = 400, array $errors = []): void
+    protected function success(mixed $data = null, int $status = 200, array $headers = []): void
     {
         $payload = [
-            'status'  => 'error',
-            'code'    => $statusCode,
-            'message' => $message,
-            'errors'  => $errors,
-            'time'    => date('c'),
-            'version' => $this->apiVersion ?? 'v1',
+            'ok'   => true,
+            'data' => $data,
         ];
-
-        if (method_exists($this->response, 'sendJson')) {
-            $this->response->sendJson($payload, $statusCode);
-            return;
-        }
-
-        $psr = $this->response->getCoreResponse()->json($payload, $statusCode);
-        $this->emitPsrResponse($psr, true);
+        ApiResponse::json($this->response, $payload, $status, $headers);
+        $this->terminate();
     }
 
+    protected function error(string $message, int $status = 400, string $code = 'error', array $meta = []): void
+    {
+        ApiResponse::error($this->response, $code, $message, $status, $meta);
+        $this->terminate();
+    }
 
-    /* -----------------------
-     * JSON body parsing
-     * ---------------------- */
+    protected function jsonErrorResponse(string $message, int $status = 400, string $code = 'error', array $meta = []): void
+    {
+        $this->error($message, $status, $code, $meta);
+    }
 
     /**
-     * Safely parse JSON request body and return associative array.
-     * Uses JsonHelper::decode which throws an Exception on error.
+     * Parse JSON body into array. If invalid -> error(400).
      */
-    protected function parseJsonBody(): array
+    protected function parseJsonBody(bool $allowEmpty = true): array
     {
-        $raw = (string)$this->request->getPsrRequest()->getBody();
-        if ($raw === '') {
-            return [];
+        $raw = '';
+
+        if (method_exists($this->request, 'getPsrRequest')) {
+            $psr = $this->request->getPsrRequest();
+            if ($psr) {
+                $raw = (string)$psr->getBody();
+            }
         }
 
         try {
-            $decoded = JsonHelper::decode($raw, true);
-        } catch (Exception $e) {
-            $this->error('Invalid JSON payload', 400);
-            // error() will emit and exit; static analyzer fallback:
-            exit;
+            $decoded = Json::decodeBody($raw, true, $allowEmpty);
+        } catch (\Throwable $e) {
+            $this->error('Invalid JSON payload', 400, 'invalid_json');
         }
 
         if (!is_array($decoded)) {
-            $this->error('Invalid JSON payload structure', 400);
-            exit;
+            $this->error('JSON payload must be an object', 400, 'invalid_json');
         }
 
         return $decoded;
     }
 
-    /* -----------------------
+    /* ---------------------------------------------------------------------
      * Date helpers (delegated)
-     * ---------------------- */
+     * --------------------------------------------------------------------- */
 
     protected function toMysqlDate(string $dateString): string
     {
+        $dt = DateHelper::parse($dateString);
+        return $dt->format('Y-m-d');
+    }
+
+    protected function toMysqlDateTime(string $dateString): string
+    {
+        $dt = DateHelper::parse($dateString);
+        return $dt->format('Y-m-d H:i:s');
+    }
+
+    protected function toMysqlTime(string $dateString): string
+    {
+        $dt = DateHelper::parse($dateString);
+        return $dt->format('H:i:s');
+    }
+
+    protected function fromMysqlDate(string $dateString, string $format = 'd M Y'): string
+    {
+        $dt = DateHelper::parse($dateString);
+        return $dt->format($format);
+    }
+
+    /* ---------------------------------------------------------------------
+     * Upload helpers (kept compatible with your helper approach)
+     * --------------------------------------------------------------------- */
+
+    protected function handleUploadChunk(array $params = []): void
+    {
+        // Expecting chunk upload fields: fileId, index, total, and $_FILES['chunk']
+        $fileId = (string)($_POST['fileId'] ?? '');
+        $index  = (int)($_POST['index'] ?? -1);
+        $total  = (int)($_POST['total'] ?? 0);
+
+        if ($fileId === '' || $index < 0 || $total <= 0 || empty($_FILES['chunk'])) {
+            $this->error('Invalid upload chunk parameters', 400, 'upload_invalid');
+        }
+
         try {
-            $dt = DateHelper::parse($dateString);
-            return $dt->format('Y-m-d');
+            $tmpDir = PathHelper::join(sys_get_temp_dir(), 'yantra_uploads', $fileId);
+            $this->ensureDir($tmpDir);
+
+            UploadHelper::saveChunk($tmpDir, $fileId, $index, $_FILES['chunk']);
+            $this->success(['fileId' => $fileId, 'index' => $index], 200);
         } catch (Exception $e) {
-            throw new InvalidArgumentException("Invalid date format: $dateString");
+            $this->error('Chunk upload failed', 500, 'upload_failed');
         }
     }
 
-    protected function toMysqlDateTime(string $datetimeString): string
+    protected function handleUploadComplete(array $params = []): void
     {
+        $fileId   = (string)($_POST['fileId'] ?? '');
+        $filename = (string)($_POST['filename'] ?? 'upload.bin');
+        $total    = (int)($_POST['total'] ?? 0);
+
+        if ($fileId === '' || $total <= 0) {
+            $this->error('Invalid upload completion parameters', 400, 'upload_invalid');
+        }
+
         try {
-            $dt = DateHelper::parse($datetimeString);
-            return $dt->format('Y-m-d H:i:s');
+            $tmpDir = PathHelper::join(sys_get_temp_dir(), 'yantra_uploads', $fileId);
+            $destDir = PathHelper::join(BASEPATH ?? '.', 'storage', 'uploads');
+            $this->ensureDir($destDir);
+
+            $destPath = PathHelper::join($destDir, $filename);
+
+            UploadHelper::assembleChunks($tmpDir, $destPath,$fileId,$filename, $total);
+
+            $this->success(['path' => $destPath], 200);
         } catch (Exception $e) {
-            throw new InvalidArgumentException("Invalid datetime format: $datetimeString");
+            $this->error('Upload completion failed', 500, 'upload_failed');
         }
     }
 
-    protected function toMysqlTime(string $timeString): string
+    protected function ensureDir(string $dir): void
     {
-        try {
-            $dt = DateHelper::parse($timeString);
-            return $dt->format('H:i:s');
-        } catch (Exception $e) {
-            throw new InvalidArgumentException("Invalid time format: $timeString");
+        if (!is_dir($dir)) {
+            if (!@mkdir($dir, 0775, true) && !is_dir($dir)) {
+                throw new InvalidArgumentException('Failed to create directory: ' . $dir);
+            }
         }
     }
 
-    protected function fromMysqlDate(string $mysqlDate, string $outputFormat = 'd M Y'): string
-    {
-        try {
-            $dt = DateHelper::parse($mysqlDate);
-            return $dt->format($outputFormat);
-        } catch (Exception $e) {
-            throw new InvalidArgumentException("Invalid date format: $mysqlDate");
-        }
-    }
+    /* ---------------------------------------------------------------------
+     * PSR emission compatibility (kept from your old design)
+     * --------------------------------------------------------------------- */
 
-    /* -----------------------
-     * Chunked uploads (delegated to UploadHelper)
-     * ---------------------- */
-
-    /**
-     * Handle a single chunk upload. Delegates to UploadHelper.
-     */
-    protected function handleUploadChunk(array $options = []): array
-    {
-        $tempBase = $options['tempBase'] ?? __DIR__ . '/../../storage/uploads/tmp_chunks';
-        $fileId   = $options['fileId'] ?? null;
-        $index    = isset($options['index']) ? intval($options['index']) : null;
-
-        if (!$fileId || $index === null) {
-            return ['status' => false, 'message' => 'Missing required fields'];
-        }
-
-        if (!isset($_FILES['chunk']) || $_FILES['chunk']['error'] !== UPLOAD_ERR_OK) {
-            return ['status' => false, 'message' => 'Invalid chunk file'];
-        }
-
-        return UploadHelper::saveChunk($tempBase, $fileId, $index, $_FILES['chunk']);
-    }
-
-    /**
-     * Assemble uploaded chunks into final file (delegates to UploadHelper).
-     */
-    protected function handleUploadComplete(array $options = []): array
-    {
-        $tempBase    = $options['tempBase'] ?? __DIR__ . '/../../storage/uploads/tmp_chunks';
-        $uploadsBase = $options['uploadsBase'] ?? __DIR__ . '/../../storage/uploads/final';
-        $fileId      = $options['fileId'] ?? null;
-        $filename    = $options['filename'] ?? null;
-        $maxSize     = $options['maxSize'] ?? (50 * 1024 * 1024);
-
-        if (!$fileId) {
-            return ['status' => false, 'message' => 'Missing fileId'];
-        }
-
-        return UploadHelper::assembleChunks($tempBase, $uploadsBase, $fileId, $filename ?? 'file', $maxSize);
-    }
-
-    /* -----------------------
-     * Utility ensure directory (thin wrapper)
-     * ---------------------- */
-
-    protected function ensureDir(string $path): void
-    {
-        PathHelper::ensureDirectory($path);
-    }
-
-    /* -----------------------
-     * Response emitter (kept but cleaned)
-     * ---------------------- */
-
-    /**
-     * Emit a PSR-7 response. Prefers Core\Response wrapper if present.
-     *
-     * @param ResponseInterface $psrResp
-     * @param bool $exit
-     */
     protected function emitPsrResponse(ResponseInterface $psrResp, bool $exit = true): void
     {
-        // Prefer Core\Response wrapper if it exists
-        if (class_exists(\System\Response::class)) {
-            $wrapper = new \System\Response($psrResp);
-            if ($exit) {
-                $wrapper->emitAndExit();
-                return;
-            }
-            $wrapper->emit();
-            return;
-        }
-
-        // Attempt Laminas SapiEmitter
+        // Prefer Laminas SapiEmitter if available
         if (class_exists(\Laminas\HttpHandlerRunner\Emitter\SapiEmitter::class) && !headers_sent()) {
             try {
                 $emitter = new \Laminas\HttpHandlerRunner\Emitter\SapiEmitter();
                 $emitter->emit($psrResp);
-                if ($exit) exit;
+                if ($exit) $this->terminate();
                 return;
             } catch (\Throwable $e) {
                 error_log('[emitPsrResponse] SapiEmitter failed: ' . $e->getMessage());
@@ -545,6 +442,15 @@ class Controller
             if (function_exists('flush')) flush();
         }
 
-        if ($exit) exit;
+        if ($exit) $this->terminate();
+    }
+
+    /**
+     * Centralized termination point.
+     */
+    protected function terminate(): void
+    {
+        // hard stop to prevent accidental fallthrough in legacy controllers
+        exit;
     }
 }

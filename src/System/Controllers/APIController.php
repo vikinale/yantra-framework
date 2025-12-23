@@ -3,260 +3,263 @@ declare(strict_types=1);
 
 namespace System\Controllers;
 
-use Exception;
 use InvalidArgumentException;
-use Psr\Http\Message\ResponseInterface;
 use System\Config;
 use System\Http\Request;
 use System\Http\Response;
-use System\Helpers\JsonHelper;
-use System\Helpers\SecurityHelper;
-use System\Utilities\Security\TokenManager;
+use System\Http\Json;
+use System\Http\ApiResponse;
+use System\Security\Crypto;
+use System\Security\Jwt\Jwt;
 
 /**
- * Class APIController
+ * APIController (Yantra optimized)
  *
- * Simplified/refactored: uses JsonHelper and SecurityHelper,
- * fixes header-setting bug, centralizes JSON parsing and responses.
+ * This controller provides:
+ *  - consistent JSON response output
+ *  - request validation helpers
+ *  - optional stateless authentication helpers (JWT / API key / Basic)
+ *
+ * Recommended: enforce auth via Router middleware in production.
  */
 abstract class APIController extends Controller
 {
-    /** API version */
-    protected string $apiVersion = 'v1';
-
-    /** HTTP status -> phrase map */
-    protected array $statusPhrases = [
-        200 => 'OK',
-        201 => 'Created',
-        204 => 'No Content',
-        400 => 'Bad Request',
-        401 => 'Unauthorized',
-        403 => 'Forbidden',
-        404 => 'Not Found',
-        422 => 'Unprocessable Entity',
-        429 => 'Too Many Requests',
-        500 => 'Internal Server Error',
-    ];
-
     /**
-     * @param Request $request
-     * @param Response $response
-     * @param bool $requireAuth
-     * @throws Exception
+     * Authenticated identity/claims (JWT payload or API key identity).
      */
+    protected ?array $apiIdentity = null;
+
     public function __construct(Request $request, Response $response, bool $requireAuth = false)
     {
         parent::__construct($request, $response);
 
+        // API controllers typically do NOT enforce same-origin CSRF.
+        // If you need CORS, do it via middleware (System\Security\Cors).
         if ($requireAuth) {
             $this->authenticateRequest('bearer');
         }
     }
 
     /**
-     * Send a JSON response using the PSR-aware response pipeline.
-     *
-     * @param mixed $data
-     * @param int $statusCode
-     * @param array $headers
+     * Primary JSON response helper (kept for convenience).
      */
     protected function jsonResponse(mixed $data, int $statusCode = 200, array $headers = []): void
     {
-        $payload = [
-            'status'  => $statusCode,
-            'message' => $this->statusPhrases[$statusCode] ?? null,
-            'data'    => $data,
-        ];
-
-        // Prefer Response wrapper sendJson if present.
-        if (isset($this->response) && method_exists($this->response, 'sendJson')) {
-            // sendJson should handle status code
-            $this->response->sendJson($payload, $statusCode);
-            return;
-        }
-
-        // Otherwise use PSR response and attach headers.
-        $psr = $this->response->getCoreResponse()->json($payload, $statusCode);
-        foreach ($headers as $k => $v) {
-            $psr = $psr->withHeader($k, (string)$v);
-        }
-
-        $this->emitPsrResponse($psr, true);
+        ApiResponse::json($this->response, $data, $statusCode, $headers);
+        $this->terminate();
     }
 
     /**
-     * Validate incoming JSON request body contains required fields.
-     *
-     * @param array $requiredFields
-     * @return array
+     * Validate JSON body and required fields. Returns decoded array.
      */
-    protected function validateJsonRequest(array $requiredFields): array
+    protected function validateJsonRequest(array $requiredFields = [], bool $allowEmptyBody = false): array
     {
-        $bodyStream = $this->request->getPsrRequest()->getBody();
-        if ($bodyStream->isSeekable()) {
-            $bodyStream->rewind();
-        }
-        $raw = (string)$bodyStream;
-
-        if ($raw === '') {
-            $this->jsonErrorResponse('Missing JSON body', 400);
-            // jsonErrorResponse will emit and exit.
+        $raw = '';
+        if (method_exists($this->request, 'getPsrRequest')) {
+            $psr = $this->request->getPsrRequest();
+            if ($psr) $raw = (string)$psr->getBody();
         }
 
         try {
-            $input = JsonHelper::decode($raw, true);
-        } catch (Exception $e) {
-            // decode will throw InvalidArgumentException; respond with 400
-            $this->jsonErrorResponse('Invalid JSON payload', 400);
+            $data = Json::decodeBody($raw, true, $allowEmptyBody);
+        } catch (\Throwable) {
+            ApiResponse::error($this->response, 'invalid_json', 'Invalid JSON payload', 400);
+            $this->terminate();
         }
 
-        if (!is_array($input)) {
-            $this->jsonErrorResponse('Invalid JSON payload', 400);
+        if (!is_array($data)) {
+            ApiResponse::error($this->response, 'invalid_json', 'JSON payload must be an object', 400);
+            $this->terminate();
         }
 
-        foreach ($requiredFields as $field) {
-            if (!array_key_exists($field, $input)) {
-                $this->jsonErrorResponse("Missing required field: {$field}", 400);
+        foreach ($requiredFields as $f) {
+            if (!is_string($f) || $f === '') continue;
+            if (!array_key_exists($f, $data)) {
+                ApiResponse::error($this->response, 'missing_field', "Missing required field: {$f}", 422, ['field' => $f]);
+                $this->terminate();
             }
         }
 
-        return $input;
+        return $data;
     }
 
     /**
-     * Authenticate API request using a chosen method.
-     *
-     * @param string $method
-     * @param string|null $expectedToken
+     * Authenticate request using method:
+     *  - 'bearer'  => JWT HS256
+     *  - 'basic'   => HTTP Basic (config)
+     *  - 'api_key' => X-API-Key / Authorization: ApiKey <key>
+     *  - 'any'     => bearer OR api_key OR basic
      */
-    protected function authenticateRequest(string $method, ?string $expectedToken = null): void
+    protected function authenticateRequest(string $method = 'bearer'): void
     {
-        switch (strtolower($method)) {
-            case 'bearer':
-                $this->authenticateBearerToken($expectedToken);
-                break;
-            case 'basic':
-                $this->authenticateBasicAuth($expectedToken);
-                break;
-            case 'api_key':
-                $this->authenticateApiKey($expectedToken);
-                break;
-            default:
-                $this->jsonErrorResponse('Invalid or unsupported authentication method', 400);
+        $method = strtolower(trim($method));
+        $ok = false;
+
+        if ($method === 'any') {
+            $ok = $this->authenticateBearerToken()
+                || $this->authenticateApiKey()
+                || $this->authenticateBasicAuth();
+        } elseif ($method === 'bearer') {
+            $ok = $this->authenticateBearerToken();
+        } elseif ($method === 'api_key') {
+            $ok = $this->authenticateApiKey();
+        } elseif ($method === 'basic') {
+            $ok = $this->authenticateBasicAuth();
+        } else {
+            throw new InvalidArgumentException('Unknown auth method: ' . $method);
+        }
+
+        if (!$ok) {
+            ApiResponse::error($this->response, 'unauthorized', 'Unauthorized', 401);
+            $this->terminate();
         }
     }
 
     /**
-     * Authenticate using Bearer token (Authorization: Bearer <token>).
-     *
-     * @param string|null $expectedToken optional expected token to compare
+     * Bearer JWT (HS256)
+     * Reads: Authorization: Bearer <token>
      */
-    protected function authenticateBearerToken(?string $expectedToken = null): void
+    protected function authenticateBearerToken(): bool
     {
-        $authHeader = $this->request->getHeader('Authorization') ?? '';
-        if ($authHeader === '') {
-            $this->jsonErrorResponse('Unauthorized: Missing Authorization header', 401);
+        $auth = $this->getHeader('Authorization') ?? '';
+        if (!is_string($auth) || stripos($auth, 'Bearer ') !== 0) {
+            return false;
         }
 
-        if (!str_starts_with($authHeader, 'Bearer ')) {
-            $this->jsonErrorResponse('Unauthorized: Invalid Authorization header', 401);
-        }
-
-        $token = trim(substr($authHeader, 7));
+        $token = trim(substr($auth, 7));
         if ($token === '') {
-            $this->jsonErrorResponse('Unauthorized: Empty bearer token', 401);
+            return false;
         }
 
-        $t = new TokenManager(Config::get('security.token_secret'));
-        $validated = $t->validateBearerToken($token);
-
-        if ($validated === null || ($expectedToken !== null && !SecurityHelper::constantTimeEquals($expectedToken, $token))) {
-            $this->jsonErrorResponse('Unauthorized: Invalid Bearer Token', 401);
+        $cfg = Config::get('app');
+        $secret = (string)($cfg['api_jwt_secret'] ?? '');
+        if ($secret === '') {
+            // misconfigured; treat as auth fail (do not leak detail)
+            return false;
         }
 
-        // attach validated subject to request attributes if Request supports set()
-        if (method_exists($this->request, 'set')) {
-            $this->request->set('auth_subject', $validated);
-        } 
+        $payload = Jwt::decodeHS256($token, $secret, 30, false);
+        if (!is_array($payload)) {
+            return false;
+        }
+
+        $this->apiIdentity = $payload;
+        return true;
     }
 
     /**
-     * Authenticate using Basic Authentication header.
+     * HTTP Basic Auth
      *
-     * @param string|null $expected optional expected credential string (not used by default)
+     * Config keys (app config):
+     *  - api_basic_user
+     *  - api_basic_pass (plain) OR api_basic_pass_hash (recommended)
      */
-    protected function authenticateBasicAuth(?string $expected = null): void
+    protected function authenticateBasicAuth(): bool
     {
-        $authorizationHeader = $this->request->getHeader('Authorization') ?? '';
-        if ($authorizationHeader === '' || !str_starts_with($authorizationHeader, 'Basic ')) {
-            // Build PSR response with WWW-Authenticate header + 401
-            $psr = $this->response->getCoreResponse()->withHeader('WWW-Authenticate', 'Basic realm="Access restricted"');
-            $this->emitPsrResponse($psr->withStatus(401), true);
+        $auth = $this->getHeader('Authorization') ?? '';
+        if (!is_string($auth) || stripos($auth, 'Basic ') !== 0) {
+            return false;
         }
 
-        $base64 = trim(substr($authorizationHeader, 6));
-        $decoded = base64_decode($base64, true);
-        if ($decoded === false) {
-            $this->jsonErrorResponse('Unauthorized: Invalid Base64 encoding', 401);
+        $b64 = trim(substr($auth, 6));
+        $decoded = base64_decode($b64, true);
+        if ($decoded === false || !str_contains($decoded, ':')) {
+            return false;
         }
 
-        if (strpos($decoded, ':') === false) {
-            $this->jsonErrorResponse('Unauthorized: Invalid credentials format', 401);
-        }
+        [$user, $pass] = explode(':', $decoded, 2);
 
-        [$username, $password] = explode(':', $decoded, 2);
-
-        if (!$this->isValidBasicAuthCredentials($username, $password)) {
-            $psr = $this->response->getCoreResponse()->withHeader('WWW-Authenticate', 'Basic realm="Access restricted"');
-            $this->emitPsrResponse($psr->withStatus(401), true);
-        }
-
-        if (method_exists($this->request, 'set')) {
-            $this->request->set('auth_subject', $username);
-        }
+        return $this->isValidBasicAuthCredentials((string)$user, (string)$pass);
     }
 
-    /**
-     * Authenticate using API key (header or server env).
-     *
-     * @param string|null $expectedKey
-     */
-    protected function authenticateApiKey(?string $expectedKey = null): void
+    protected function authenticateApiKey(): bool
     {
-        $apiKey = $this->request->getHeader('X-API-Key') ?? '';
-        if ($apiKey === '') {
-            $authHeader = $this->request->getHeader('Authorization') ?? '';
-            if (str_starts_with($authHeader, 'ApiKey ')) {
-                $apiKey = trim(substr($authHeader, 7));
+        // 1) X-API-Key header
+        $key = $this->getHeader('X-API-Key');
+
+        // 2) Authorization: ApiKey <key> (optional support)
+        if (!is_string($key) || $key === '') {
+            $auth = $this->getHeader('Authorization') ?? '';
+            if (is_string($auth) && stripos($auth, 'ApiKey ') === 0) {
+                $key = trim(substr($auth, 7));
             }
         }
 
-        if ($apiKey === '') {
-            $apiKey = $_SERVER['API_KEY'] ?? '';
+        if (!is_string($key) || trim($key) === '') {
+            return false;
+        }
+        $key = trim($key);
+
+        $cfg = Config::get('app');
+
+        /**
+         * Config options:
+         *  - api_keys => ['key1','key2'] (plain keys)
+         *  - api_key_hashes => ['hash1','hash2'] where hash = hash('sha256', key) (recommended)
+         */
+        $plain = $cfg['api_keys'] ?? null;
+        $hashes = $cfg['api_key_hashes'] ?? null;
+
+        // Prefer hashes if configured
+        if (is_array($hashes) && $hashes !== []) {
+            $kHash = hash('sha256', $key);
+            foreach ($hashes as $h) {
+                if (!is_string($h) || $h === '') continue;
+                if (Crypto::hashEquals($h, $kHash)) {
+                    $this->apiIdentity = ['type' => 'api_key', 'hash' => $kHash];
+                    return true;
+                }
+            }
+            return false;
         }
 
-        if ($apiKey === '') {
-            $this->jsonErrorResponse('Unauthorized: Missing API Key', 401);
+        // Fallback: plain keys
+        if (is_array($plain) && $plain !== []) {
+            foreach ($plain as $k) {
+                if (!is_string($k) || $k === '') continue;
+                if (Crypto::hashEquals($k, $key)) {
+                    $this->apiIdentity = ['type' => 'api_key', 'key' => $key];
+                    return true;
+                }
+            }
         }
 
-        $t = new TokenManager(Config::get('security.token_secret'));
-        $validated = $t->validateAPIKey($apiKey);
+        return false;
+    }
 
-        if ($validated === null || ($expectedKey !== null && !SecurityHelper::constantTimeEquals($expectedKey, $apiKey))) {
-            $this->jsonErrorResponse('Unauthorized: Invalid API Key', 401);
+    protected function isValidBasicAuthCredentials(string $user, string $pass): bool
+    {
+        $cfg = Config::get('app');
+
+        $cfgUser = (string)($cfg['api_basic_user'] ?? '');
+        if ($cfgUser === '') {
+            return false;
         }
 
-        if (method_exists($this->request, 'set')) {
-            $this->request->set('auth_subject', $validated);
+        if (!Crypto::hashEquals($cfgUser, $user)) {
+            return false;
         }
+
+        // Prefer hashed password
+        $hash = (string)($cfg['api_basic_pass_hash'] ?? '');
+        if ($hash !== '') {
+            // password_hash compatible (bcrypt/argon)
+            return password_verify($pass, $hash);
+        }
+
+        $plain = (string)($cfg['api_basic_pass'] ?? '');
+        if ($plain === '') {
+            return false;
+        }
+
+        return Crypto::hashEquals($plain, $pass);
     }
 
     /**
-     * Concrete controllers must implement Basic Auth validation.
-     *
-     * @param string $username
-     * @param string $password
-     * @return bool
+     * Accessor for controllers to read identity/claims.
      */
-    protected abstract function isValidBasicAuthCredentials(string $username, string $password): bool;
+    protected function identity(): ?array
+    {
+        return $this->apiIdentity;
+    }
 }

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace System\Routing;
+namespace System\Core\Routing;
 
 use System\Http\Request;
 use System\Http\Response;
@@ -133,22 +133,7 @@ final class Router
         $this->loadErrorsIfNeeded();
 
         if (!isset($this->errors[$code])) {
-            // Fallback to Response helpers if present
-            if ($code === 404) {
-                $res->not_found();
-                return;
-            }
-            if ($code === 405 && method_exists($res, 'method_not_allowed')) {
-                $res->method_not_allowed();
-                return;
-            }
-            
-            // set status if available
-            if (method_exists($res, 'status')) {
-                $res->status($code);
-            }
-            // generic fallback
-            $res->not_found();
+            $res->status($code);
             return;
         }
 
