@@ -352,4 +352,11 @@ final class Response implements ResponseInterface
         ];
         return $map[$mime] ?? null;
     }
+    
+    public function view(string $name, array $data = [], ?string $layout = 'layouts/main', int $status = 200): self
+    {
+        $html = $this->view->render($name, $data, $layout);
+        return $this->html($html, $status);
+    }
+
 }

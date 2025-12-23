@@ -1,173 +1,281 @@
 <?php
-declare(strict_types=1);
 
 namespace System\Database;
 
+use Exception;
 use PDO;
 use PDOException;
 use PDOStatement;
-use System\Database\Exceptions\DatabaseException;
-use System\Database\Support\LoggerInterface;
-use System\Database\Support\NullLogger;
 
-final class Database
+/**
+ * Database - small PDO wrapper / connection manager
+ *
+ * Notes:
+ * - Use Database::getInstance() to obtain the shared instance (singleton).
+ * - You can call Database::getInstance(false) to get a fresh instance.
+ * - Include your DB config at 'App/Config/db.php' which must return an array:
+ *     ['host'=>'localhost', 'port'=>3306, 'database'=>'db', 'username'=>'user', 'password'=>'pass', 'charset'=>'utf8mb4', 'options'=>[...] ]
+ */
+class Database
 {
+    private static ?Database $instance = null;
     private ?PDO $pdo = null;
-
-    /** @var array<string,mixed> */
     private array $config;
 
-    private bool $isDev;
-    private LoggerInterface $logger;
-
     /**
-     * @param array<string,mixed> $config keys:
-     *   host, dbname, username, password, charset, port, options
+     * @param array|null $config optional DB config; if null will require 'App/Config/db.php'
+     * @throws Exception
      */
-    public function __construct(array $config, bool $isDev = false, ?LoggerInterface $logger = null)
+    public function __construct(array $config = null)
     {
-        $this->config = $config;
-        $this->isDev  = $isDev;
-        $this->logger = $logger ?? new NullLogger();
+        $this->config = $config ?? $this->loadConfig();
+        if (!$this->config || !is_array($this->config)) {
+            throw new Exception('Database configuration not found or invalid.');
+        }
+        $this->connect();
     }
 
-    public function pdo(): PDO
+    /**
+     * Begin a transaction on the singleton instance (creates instance lazily).
+     * @throws Exception
+     */
+    public static function beginTransaction(): bool
     {
-        $this->connectIfNeeded();
+        if (self::$instance === null) {
+            self::$instance = new self();
+        }
+        return self::$instance->_beginTransaction();
+    }
+
+    /**
+     * Commit on the singleton instance.
+     * @throws Exception
+     */
+    public static function commit(): bool
+    {
+        if (self::$instance === null) {
+            throw new Exception('No active Database instance. Call Database::getInstance() or Database::beginTransaction() first.');
+        }
+        return self::$instance->_commit();
+    }
+
+    /**
+     * Rollback on the singleton instance.
+     * @throws Exception
+     */
+    public static function rollBack(): bool
+    {
+        if (self::$instance === null) {
+            throw new Exception('No active Database instance. Call Database::getInstance() or Database::beginTransaction() first.');
+        }
+        return self::$instance->_rollBack();
+    }
+
+    /* -----------------------
+     * Instance-level transaction helpers
+     * ----------------------- */
+    public function _beginTransaction(): bool
+    {
+        return $this->pdo->beginTransaction();
+    }
+
+    public function _commit(): bool
+    {
+        return $this->pdo->commit();
+    }
+
+    public function _rollBack(): bool
+    {
+        return $this->pdo->rollBack();
+    }
+
+    /**
+     * Get instance
+     *
+     * @param bool $singleton true => return shared instance; false => new instance
+     * @return Database
+     * @throws Exception
+     */
+    public static function getInstance(bool $singleton = true): Database
+    {
+        if ($singleton === false) {
+            return new self();
+        }
+        if (self::$instance === null) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
+
+    /**
+     * Return raw PDO instance.
+     */
+    public function getPDO(): PDO
+    {
         return $this->pdo;
     }
 
-    public function connectIfNeeded(): void
+    /**
+     * Prepare a statement. Throws an Exception on failure.
+     *
+     * @param string $query
+     * @param array $options
+     * @return PDOStatement
+     * @throws Exception
+     */
+    public function prepare(string $query, array $options = []): PDOStatement
     {
-        if ($this->pdo instanceof PDO) {
+        $stmt = $this->pdo->prepare($query, $options);
+        if ($stmt === false) {
+            $err = $this->pdo->errorInfo();
+            throw new Exception('PDO prepare failed: ' . implode(' | ', $err) . "\nSQL: " . $query);
+        }
+        return $stmt;
+    }
+
+    /**
+     * Connect to the database (lazy).
+     *
+     * @throws Exception
+     */
+    public function connect(): void
+    {
+        if ($this->pdo !== null) {
             return;
         }
 
-        $host    = (string)($this->config['host'] ?? 'localhost');
-        $dbname  = (string)($this->config['dbname'] ?? '');
-        $user    = (string)($this->config['username'] ?? '');
-        $pass    = (string)($this->config['password'] ?? '');
-        $charset = (string)($this->config['charset'] ?? 'utf8mb4');
-        $port    = (string)($this->config['port'] ?? '');
+        $host = $this->config['host'] ?? '127.0.0.1';
+        $port = $this->config['port'] ?? null;
+        $db   = $this->config['database'] ?? '';
+        $user = $this->config['username'] ?? '';
+        $pass = $this->config['password'] ?? '';
+        $charset = $this->config['charset'] ?? 'utf8mb4';
 
-        if ($dbname === '') {
-            throw new DatabaseException('Database configuration error: missing dbname.');
-        }
-
-        $dsn = "mysql:host={$host};dbname={$dbname};charset={$charset}";
-        if ($port !== '') {
+        // Build DSN
+        $dsn = "mysql:host={$host}";
+        if (!empty($port)) {
             $dsn .= ";port={$port}";
         }
+        if (!empty($db)) {
+            $dsn .= ";dbname={$db}";
+        }
+        $dsn .= ";charset={$charset}";
+
+        // Default PDO options (can be overridden via config['options'])
+        $defaultOptions = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ];
 
         $options = $this->config['options'] ?? [];
-        if (!is_array($options)) $options = [];
-
-        $options = $options + [
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES   => false,
-        ];
+        $options = $options + $defaultOptions;
 
         try {
             $this->pdo = new PDO($dsn, $user, $pass, $options);
         } catch (PDOException $e) {
-            $this->logger->error('DB connection failed', [
-                'dsn' => $this->isDev ? $dsn : '[redacted]',
-                'error' => $this->isDev ? $e->getMessage() : 'hidden',
-            ]);
-
-            // Do not leak sensitive details in production
-            throw new DatabaseException(
-                $this->isDev ? ('Database connection failed: ' . $e->getMessage()) : 'Database connection failed.',
-                $this->isDev ? ['dsn' => $dsn] : [],
-                0,
-                $e
-            );
-        }
-    }
-
-    public function prepare(string $sql): PDOStatement
-    {
-        $this->connectIfNeeded();
-
-        try {
-            return $this->pdo->prepare($sql);
-        } catch (PDOException $e) {
-            throw new DatabaseException(
-                $this->isDev ? ('Prepare failed: ' . $e->getMessage()) : 'Database error.',
-                $this->isDev ? ['sql' => $sql] : [],
-                0,
-                $e
-            );
+            // Do not leak connection details in production; rethrow a generic message
+            throw new Exception('Database connection error: ' . $e->getMessage());
         }
     }
 
     /**
-     * @param array<string,mixed> $bindings
+     * Normalize lastInsertId - PDO returns string. Return string to keep parity with PDO.
+     * Callers that need integer should cast.
      */
-    public function execute(string $sql, array $bindings = []): PDOStatement
-    {
-        $stmt = $this->prepare($sql);
-
-        try {
-            $stmt->execute($bindings);
-            return $stmt;
-        } catch (PDOException $e) {
-            $ctx = $this->isDev ? ['sql' => $sql, 'bindings' => $bindings] : [];
-            $this->logger->error('DB execute failed', $ctx);
-
-            throw new DatabaseException(
-                $this->isDev ? ('Query failed: ' . $e->getMessage()) : 'Database error.',
-                $ctx,
-                0,
-                $e
-            );
-        }
-    }
-
-    /**
-     * @param array<string,mixed> $bindings
-     * @return array<string,mixed>|null
-     */
-    public function fetch(string $sql, array $bindings = []): ?array
-    {
-        $stmt = $this->execute($sql, $bindings);
-        $row = $stmt->fetch();
-        return is_array($row) ? $row : null;
-    }
-
-    /**
-     * @param array<string,mixed> $bindings
-     * @return array<int,array<string,mixed>>
-     */
-    public function fetchAll(string $sql, array $bindings = []): array
-    {
-        $stmt = $this->execute($sql, $bindings);
-        $rows = $stmt->fetchAll();
-        return is_array($rows) ? $rows : [];
-    }
-
     public function lastInsertId(): string
     {
-        $this->connectIfNeeded();
         return (string)$this->pdo->lastInsertId();
     }
 
-    public function beginTransaction(): void
+    /**
+     * Quote a value using PDO
+     *
+     * @param string $string
+     * @param int $type
+     * @return string
+     */
+    public function quote(string $string, int $type = PDO::PARAM_STR): string
     {
-        $this->connectIfNeeded();
-        $this->pdo->beginTransaction();
+        return (string)$this->pdo->quote($string, $type);
     }
 
-    public function commit(): void
+    /**
+     * Execute SQL with positional bindings. Returns true on success.
+     *
+     * @param string $query
+     * @param array $params
+     * @return bool
+     * @throws Exception
+     */
+    public function execute(string $query, array $params = []): bool
     {
-        $this->connectIfNeeded();
-        $this->pdo->commit();
+        $stmt = $this->prepare($query);
+        $ok = $stmt->execute($params);
+        if ($ok === false) {
+            $err = $stmt->errorInfo();
+            throw new Exception('Query execute failed: ' . implode(' | ', $err) . "\nSQL: " . $query);
+        }
+        return true;
     }
 
-    public function rollBack(): void
+    /**
+     * Fetch a single row (associative by default)
+     *
+     * @param string $query
+     * @param array $params
+     * @return array|null
+     * @throws Exception
+     */
+    public function fetch(string $query, array $params = []): ?array
     {
-        $this->connectIfNeeded();
-        $this->pdo->rollBack();
+        $stmt = $this->prepare($query);
+        $stmt->execute($params);
+        $row = $stmt->fetch();
+        return $row === false ? null : $row;
+    }
+
+    /**
+     * Fetch all rows (associative by default)
+     *
+     * @param string $query
+     * @param array $params
+     * @return array
+     * @throws Exception
+     */
+    public function fetchAll(string $query, array $params = []): array
+    {
+        $stmt = $this->prepare($query);
+        $stmt->execute($params);
+        $rows = $stmt->fetchAll();
+        return $rows === false ? [] : $rows;
+    }
+
+    /* -------------------------
+     * Helpers
+     * ------------------------- */
+
+    /**
+     * Load config from file. This method centralizes where config is loaded
+     * and makes it easier to mock in tests.
+     *
+     * @return array
+     */
+    protected function loadConfig(): array
+    {
+        $path = __DIR__ . '/../../App/Config/db.php';
+        if (file_exists($path)) {
+            $cfg = require $path;
+            return is_array($cfg) ? $cfg : [];
+        }
+        // fallback to default env-driven config
+        return [
+            'host' => getenv('DB_HOST') ?: '127.0.0.1',
+            'port' => getenv('DB_PORT') ?: 3306,
+            'database' => getenv('DB_DATABASE') ?: '',
+            'username' => getenv('DB_USERNAME') ?: '',
+            'password' => getenv('DB_PASSWORD') ?: '',
+            'charset' => getenv('DB_CHARSET') ?: 'utf8mb4',
+        ];
     }
 }

@@ -1,7 +1,7 @@
 <?php
 namespace System\Utilities;
 
-use System\FormException;
+use System\Exceptions\FormException;
 
 /**
  * ValidationException - contains validation errors in $errors array.
