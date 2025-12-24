@@ -245,7 +245,7 @@ abstract class Controller
     protected function header(string $name, string $value): void
     {
         if (method_exists($this->response, 'withHeader')) {
-            $this->response->withHeader($name, $value);
+            $this->response = $this->response->withHeader($name, $value);
             return;
         }
         header($name . ': ' . $value, true);
@@ -254,7 +254,7 @@ abstract class Controller
     protected function status(int $code): void
     {
         if (method_exists($this->response, 'withStatus')) {
-            $this->response->withStatus($code);
+            $this->response = $this->response->withStatus($code);
             return;
         }
         http_response_code($code);
@@ -373,6 +373,7 @@ abstract class Controller
 
     protected function handleUploadComplete(array $params = []): void
     {
+        global $app;
         $fileId   = (string)($_POST['fileId'] ?? '');
         $filename = (string)($_POST['filename'] ?? 'upload.bin');
         $total    = (int)($_POST['total'] ?? 0);
@@ -383,7 +384,7 @@ abstract class Controller
 
         try {
             $tmpDir = PathHelper::join(sys_get_temp_dir(), 'yantra_uploads', $fileId);
-            $destDir = PathHelper::join(BASEPATH ?? '.', 'storage', 'uploads');
+            $destDir = PathHelper::join($app->getBasePath(), 'storage', 'uploads');
             $this->ensureDir($destDir);
 
             $destPath = PathHelper::join($destDir, $filename);

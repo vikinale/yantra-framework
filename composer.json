@@ -20,7 +20,10 @@
     "psr-4": {
       "System\\": "src/System/",
       "Core\\": "src/Core/"
-    }
+    },
+    "files": [
+      "src/System/functions.php"
+    ]
   },
   "autoload-dev": {
     "psr-4": {

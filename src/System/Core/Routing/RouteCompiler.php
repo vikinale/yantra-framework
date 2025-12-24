@@ -97,6 +97,10 @@ final class RouteCompiler
                 continue;
             }
 
+            if (!preg_match('/^[A-Z]+$/', $key)) {
+                continue; // or throw
+            }
+
             $file = rtrim($cacheDir, '/\\') . DIRECTORY_SEPARATOR . strtoupper($key) . '.php';
             $this->writePhpReturnFile($file, $bucket);
         }

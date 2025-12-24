@@ -133,7 +133,7 @@ final class Router
         $this->loadErrorsIfNeeded();
 
         if (!isset($this->errors[$code])) {
-            $res->status($code);
+            $res->withStatus($code);
             return;
         }
 

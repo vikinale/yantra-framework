@@ -1,4 +1,5 @@
 <?php
+declare(strict_types=1);
 
 namespace System\Database;
 
@@ -6,6 +7,7 @@ use Exception;
 use PDO;
 use PDOException;
 use PDOStatement;
+use System\Config;
 
 /**
  * Database - small PDO wrapper / connection manager
@@ -262,12 +264,11 @@ class Database
      * @return array
      */
     protected function loadConfig(): array
-    {
-        $path = __DIR__ . '/../../App/Config/db.php';
-        if (file_exists($path)) {
-            $cfg = require $path;
-            return is_array($cfg) ? $cfg : [];
-        }
+    {        
+        $cfg =  Config::get('db');
+        if(is_array($cfg))
+            return $cfg;
+
         // fallback to default env-driven config
         return [
             'host' => getenv('DB_HOST') ?: '127.0.0.1',

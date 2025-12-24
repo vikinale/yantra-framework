@@ -5,10 +5,11 @@ namespace System\Http;
 
 use Laminas\HttpHandlerRunner\Emitter\SapiEmitter;
 use Nyholm\Psr7\Factory\Psr17Factory;
-use Nyholm\Psr7\Stream;
+use Nyholm\Psr7\Stream; 
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
+use System\Config;
 use System\View\ViewRenderer;
 
 final class Response implements ResponseInterface
@@ -49,8 +50,9 @@ final class Response implements ResponseInterface
         }
 
         $this->psr = $resp;
-                // default views path; adjust if you store in Config
-        $this->view = $view ?? new ViewRenderer([APPPATH . '/Views']);
+        
+        // default views path; adjust if you store in Config
+        $this->view = $view ?? new ViewRenderer([Config::get('app.views.path', BASEPATH . '/app/Views')]);
     }
 
     // -----------------------
@@ -59,7 +61,7 @@ final class Response implements ResponseInterface
 
     public function getProtocolVersion(): string { return $this->psr->getProtocolVersion(); }
 
-    public function withProtocolVersion($version): ResponseInterface
+    public function withProtocolVersion($version): self
     {
         $new = clone $this;
         $new->psr = $this->psr->withProtocolVersion($version);
@@ -71,21 +73,20 @@ final class Response implements ResponseInterface
     public function getHeader($name): array { return $this->psr->getHeader($name); }
     public function getHeaderLine($name): string { return $this->psr->getHeaderLine($name); }
 
-    public function withHeader($name, $value): ResponseInterface
+    public function withHeader($name, $value): self
     {
-        $new = clone $this;
-        $new->psr = $this->psr->withHeader($name, $value);
-        return $new;
+        $this->psr = $this->psr->withHeader($name, $value);
+        return $this;
     }
-
-    public function withAddedHeader($name, $value): ResponseInterface
+    
+    public function withAddedHeader($name, $value): self
     {
         $new = clone $this;
         $new->psr = $this->psr->withAddedHeader($name, $value);
         return $new;
     }
 
-    public function withoutHeader($name): ResponseInterface
+    public function withoutHeader($name): self
     {
         $new = clone $this;
         $new->psr = $this->psr->withoutHeader($name);
@@ -94,7 +95,7 @@ final class Response implements ResponseInterface
 
     public function getBody(): StreamInterface { return $this->psr->getBody(); }
 
-    public function withBody(StreamInterface $body): ResponseInterface
+    public function withBody(StreamInterface $body): self
     {
         $new = clone $this;
         $new->psr = $this->psr->withBody($body);
@@ -103,11 +104,10 @@ final class Response implements ResponseInterface
 
     public function getStatusCode(): int { return $this->psr->getStatusCode(); }
 
-    public function withStatus($code, $reasonPhrase = ''): ResponseInterface
+    public function withStatus(int $code, string $reasonPhrase = ''): self
     {
-        $new = clone $this;
-        $new->psr = $this->psr->withStatus($code, $reasonPhrase);
-        return $new;
+        $this->psr = $this->psr->withStatus($code, $reasonPhrase);
+        return $this;
     }
 
     public function getReasonPhrase(): string { return $this->psr->getReasonPhrase(); }
@@ -116,7 +116,7 @@ final class Response implements ResponseInterface
     // Convenience helpers (immutable)
     // -----------------------
 
-    public function html(string $html, int $status = 200): ResponseInterface
+    public function html(string $html, int $status = 200): self
     {
         $stream = $this->factory->createStream($html);
 
@@ -135,7 +135,7 @@ final class Response implements ResponseInterface
         return $new;
     }
 
-    public function text(string $text, int $status = 200): ResponseInterface
+    public function text(string $text, int $status = 200): self
     {
         $stream = $this->factory->createStream($text);
 
@@ -153,7 +153,7 @@ final class Response implements ResponseInterface
         return $new;
     }
 
-    public function json(mixed $data, int $status = 200, int $jsonOptions = JSON_UNESCAPED_UNICODE): ResponseInterface
+    public function json(mixed $data, int $status = 200, int $jsonOptions = JSON_UNESCAPED_UNICODE): self
     {
         $payload = json_encode($data, $jsonOptions);
         if ($payload === false) {
@@ -180,7 +180,7 @@ final class Response implements ResponseInterface
         return $new;
     }
 
-    public function redirect(string $url, int $code = 302): ResponseInterface
+    public function redirect(string $url, int $code = 302): self
     {
         $url = str_replace(["\r", "\n"], '', $url);
 
@@ -199,7 +199,7 @@ final class Response implements ResponseInterface
         return $new;
     }
 
-    public function file(string $filePath, ?string $downloadName = null, ?string $mime = null): ResponseInterface
+    public function file(string $filePath, ?string $downloadName = null, ?string $mime = null): self
     {
         if (!is_file($filePath) || !is_readable($filePath)) {
             throw new RuntimeException("File not found or unreadable: {$filePath}");
@@ -226,7 +226,7 @@ final class Response implements ResponseInterface
         return $new;
     }
 
-    public function base64ToFileDownload(string $base64Data, string $filename): ResponseInterface
+    public function base64ToFileDownload(string $base64Data, string $filename): self
     {
         if (!preg_match('/^data:(.*?);base64,/', $base64Data, $m)) {
             throw new RuntimeException('Invalid base64 data format.');
@@ -306,7 +306,7 @@ final class Response implements ResponseInterface
     // Utilities
     // -----------------------
 
-    public function getPsr7(): ResponseInterface
+    public function getPsr7(): self
     {
         return $this->psr;
     }

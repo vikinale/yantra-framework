@@ -25,22 +25,7 @@ final class Config
     {
         self::$configDir = trim($configDir, '/\\');
     }
-
-    private static function resolveBasePath(): string
-    {
-        if (self::$basePath) {
-            return self::$basePath;
-        }
-
-        // If the application defines a base-path constant, use it.
-        if (defined('APPPATH') && is_string(constant('APPPATH')) && constant('APPPATH') !== '') {
-            return rtrim(constant('APPPATH'), '/\\');
-        }
-
-        // Sensible fallback in library context.
-        return rtrim((string) getcwd(), '/\\');
-    }
-
+ 
     /**
      * Load a config file and cache it under its root key.
      *
@@ -48,7 +33,7 @@ final class Config
      */
     public static function read(string $name): array
     {
-        $file = self::resolveBasePath() . DIRECTORY_SEPARATOR . self::$configDir . DIRECTORY_SEPARATOR . $name . '.php';
+        $file = self::$basePath . DIRECTORY_SEPARATOR . self::$configDir . DIRECTORY_SEPARATOR . $name . '.php';
 
         if (!is_file($file)) {
             return [];

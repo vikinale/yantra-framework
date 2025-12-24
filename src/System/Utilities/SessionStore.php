@@ -32,6 +32,11 @@ final class SessionStore
         }
     }
 
+    public static function is_init(): bool
+    {
+        return self::$adapter !== null;
+    }
+
     public static function set(string $key, mixed $value): void
     {
         self::ensureStarted();

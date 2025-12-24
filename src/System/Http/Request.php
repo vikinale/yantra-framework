@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace System\Http;
 
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -18,7 +20,6 @@ class Request
     private array $attributes = [];
     private ?RequestCache $requestCache = null;
     private Psr17Factory $psrFactory;
-    private ViewRenderer $view;
 
     /**
      * Construct from an existing PSR request or build one from globals if null.
@@ -106,10 +107,36 @@ class Request
 
     public function all(): array
     {
-        // merge parsed body and query for legacy behavior
+        $data = $this->psr->getQueryParams();
+        if (!is_array($data)) {
+            $data = [];
+        }
+
+        // Parsed body (form/multipart, etc.)
         $parsed = $this->psr->getParsedBody();
-        if (!is_array($parsed)) $parsed = [];
-        return array_merge($this->psr->getQueryParams(), $parsed, $_REQUEST);
+        if (is_array($parsed) && $parsed !== []) {
+            // body overrides query on key collision (typical expectation)
+            $data = array_replace($data, $parsed);
+        }
+
+        // JSON body (only when Content-Type indicates JSON)
+        $contentType = strtolower($this->psr->getHeaderLine('Content-Type'));
+        if (str_contains($contentType, 'application/json')) {
+            $raw = (string) $this->psr->getBody();
+            if ($raw !== '') {
+                try {
+                    $json = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+                    if (is_array($json) && $json !== []) {
+                        $data = array_replace($data, $json);
+                    }
+                } catch (\JsonException $e) {
+                    // For all(): ignore invalid JSON and return what we have.
+                    // (Validation should be strict; all() should be best-effort.)
+                }
+            }
+        }
+
+        return $data;
     }
 
     public function input(string $key, $default = null)
@@ -240,31 +267,59 @@ class Request
         return $default;
     }
 
-    // validation (same logic but using PSR-request body)
     public function validate(array $rules, array $messages = [], array $sanitizers = []): array
     {
-        // get parsed body if JSON or form; fallback to $_REQUEST
-        $body = $this->psr->getParsedBody();
-        if (!is_array($body)) $body = [];
-        // JSON raw fallback
-        $raw = (string)$this->psr->getBody();
-        $json = @json_decode($raw, true);
-        if (is_array($json) && count($json) > 0) {
-            $data = array_merge($_REQUEST, $json);
-        } else {
-            $data = array_merge($_REQUEST, $body);
+        // 1) Start with query params (GET)
+        $data = $this->psr->getQueryParams();
+        if (!is_array($data)) {
+            $data = [];
         }
 
+        // 2) Add parsed body (POST form / multipart; many PSR-7 stacks fill this)
+        $body = $this->psr->getParsedBody();
+        if (is_array($body) && $body !== []) {
+            $data = array_replace($data, $body);
+        }
+
+        // 3) If JSON, prefer JSON payload (and avoid @)
+        //    Note: do this after parsed body so JSON overrides if present.
+        $contentType = strtolower($this->psr->getHeaderLine('Content-Type'));
+        if (str_contains($contentType, 'application/json')) {
+            $raw = (string) $this->psr->getBody();
+
+            if ($raw !== '') {
+                try {
+                    $json = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+                    if (is_array($json) && $json !== []) {
+                        $data = array_replace($data, $json);
+                    }
+                } catch (\JsonException $e) {
+                    // Decide your policy:
+                    // - either treat as validation failure:
+                    throw new ValidationException(['_json' => ['Invalid JSON body.']]);
+                    // - or ignore and continue with parsed-body/query only (less strict)
+                }
+            }
+        }
+
+        // 4) Merge files last (files should not be overridden by scalars)
         foreach ($this->allFiles() as $k => $f) {
             $data[$k] = $f;
         }
 
-        if (!empty($sanitizers)) $data = Sanitizer::clean($data, $sanitizers);
+        // 5) Sanitizers before validation (your existing behavior)
+        if (!empty($sanitizers)) {
+            $data = Sanitizer::clean($data, $sanitizers);
+        }
 
         $v = Validator::make($data, $rules, $messages);
-        if ($v->fails()) throw new ValidationException($v->errors());
+        if ($v->fails()) {
+            throw new ValidationException($v->errors());
+        }
+
         return $v->validated();
     }
+
 
     public function cache(?string $prefix = null): RequestCache
     {

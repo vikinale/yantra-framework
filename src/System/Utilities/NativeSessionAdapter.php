@@ -105,9 +105,6 @@ final class NativeSessionAdapter implements SessionAdapterInterface
                         'httponly' => $params['httponly'] ?? true,
                         'samesite' => $samesite,
                     ]);
-                } else {
-                    // best-effort legacy fallback
-                    setcookie(session_name(), '', time() - 42000, $params['path'] ?? '/', $params['domain'] ?? '', $params['secure'] ?? false, $params['httponly'] ?? true);
                 }
             }
 
