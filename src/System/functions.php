@@ -67,3 +67,7 @@ function get_current_url(): string
     $requestUri = $_SERVER['REQUEST_URI'] ?? '/';
     return $protocol . $host . $requestUri;
 }
+function e(string $value): string
+{
+    return htmlspecialchars($value, ENT_QUOTES, 'UTF-8');
+}

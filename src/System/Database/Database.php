@@ -28,7 +28,7 @@ class Database
      * @param array|null $config optional DB config; if null will require 'App/Config/db.php'
      * @throws Exception
      */
-    public function __construct(array $config = null)
+    public function __construct(?array $config)
     {
         $this->config = $config ?? $this->loadConfig();
         if (!$this->config || !is_array($this->config)) {
@@ -44,7 +44,7 @@ class Database
     public static function beginTransaction(): bool
     {
         if (self::$instance === null) {
-            self::$instance = new self();
+            self::$instance = new self(null);
         }
         return self::$instance->_beginTransaction();
     }
@@ -101,10 +101,10 @@ class Database
     public static function getInstance(bool $singleton = true): Database
     {
         if ($singleton === false) {
-            return new self();
+            return new self(null);
         }
         if (self::$instance === null) {
-            self::$instance = new self();
+            self::$instance = new self(null);
         }
         return self::$instance;
     }
@@ -179,8 +179,8 @@ class Database
             // Do not leak connection details in production; rethrow a generic message
             throw new Exception('Database connection error: ' . $e->getMessage());
         }
-    }
-
+    } 
+    
     /**
      * Normalize lastInsertId - PDO returns string. Return string to keep parity with PDO.
      * Callers that need integer should cast.

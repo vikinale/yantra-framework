@@ -14,11 +14,17 @@ final class Config
 {
     private static array $settings = [];
     private static ?string $basePath = null;
+    private static ?string $appPath = null;
     private static string $configDir = 'config';
 
     public static function setBasePath(string $basePath): void
     {
         self::$basePath = rtrim($basePath, '/\\');
+    }
+
+    public static function setAppPath(string $appPath): void
+    {
+        self::$appPath = rtrim($appPath, '/\\');
     }
 
     public static function setConfigDir(string $configDir): void
@@ -33,7 +39,7 @@ final class Config
      */
     public static function read(string $name): array
     {
-        $file = self::$basePath . DIRECTORY_SEPARATOR . self::$configDir . DIRECTORY_SEPARATOR . $name . '.php';
+        $file = self::$appPath . DIRECTORY_SEPARATOR . self::$configDir . DIRECTORY_SEPARATOR . $name . '.php';
 
         if (!is_file($file)) {
             return [];

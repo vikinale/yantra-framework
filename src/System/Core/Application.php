@@ -11,12 +11,18 @@ use System\Utilities\SessionStore;
 use System\Utilities\NativeSessionAdapter;
 use App\Middleware\MiddlewareMap;
 use RuntimeException;
+use System\Theme\Assets\AssetManager;
+use System\Theme\Resolvers\ConfigThemeResolver;
+use System\Theme\Theme;
+use System\Theme\ThemeManager;
+use System\Theme\ThemeRegistry;
+use System\Theme\View\PhpViewRenderer;
 use System\Utilities\SessionAdapterInterface;
 use Throwable;
 
 final class Application
 {
-    private string $basePath;
+    //private string $basePath;
     private string $appPath;
     private array $config = [];
     private string $environment = 'development';
@@ -24,21 +30,30 @@ final class Application
     private Router $router;
     private Kernel $kernel;
 
-    public function __construct(string $basePath, string $environment = 'development')
+    public function __construct(string $appDir, string $environment = 'development')
     {
-        $this->basePath = rtrim($basePath, DIRECTORY_SEPARATOR);
-        $this->appPath  = $this->basePath . '/app';
+        //BASEPATH= rtrim($basePath, DIRECTORY_SEPARATOR);
+        $this->appPath  =rtrim(BASEPATH, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$appDir; //BASEPATH. '/app';
         $this->environment = $environment;
-    }
 
+        $helpers = __DIR__ . '/../functions.php';
+        if (is_file($helpers)) require_once $helpers;
+    }
+    
     public static function create(string $basePath): self
     {
         return new self($basePath);
     }
 
-    public function getBasePath(string $append=''): string
+    public function setAppPath($path): self
     {
-        return $this->basePath . ($append ? DIRECTORY_SEPARATOR . $append : '');
+        $this->appPath = $path;
+        return $this;
+    }
+
+    public static function getBasePath(string $append=''): string
+    {
+        return rtrim(BASEPATH,DIRECTORY_SEPARATOR). ($append ? DIRECTORY_SEPARATOR . $append : '');
     }
 
     public function getAppPath(string $append=''): string
@@ -55,7 +70,7 @@ final class Application
     public function initRoutes(): self
     {
         if (!isset($this->router)) {
-            $routeCacheDir = $this->basePath . '/storage/cache/routes';
+            $routeCacheDir = BASEPATH. '/storage/cache/routes';
             $this->router = new Router($routeCacheDir);
         }
         if ($this->environment === 'development'){
@@ -77,14 +92,16 @@ final class Application
     public function boot(): self
     {
         // 1) Config (your key is 'app', not 'App')
-        Config::setBasePath($this->basePath);
+        Config::setBasePath(BASEPATH);
+        Config::setAppPath($this->appPath);
+
         $this->config = Config::get('app') ?? [];
         $this->environment = (string)($this->config['environment'] ?? 'production');
 
         if ($this->environment === 'development') {
             ini_set('display_errors', '1');
             ini_set('log_errors', '1');
-            ini_set('error_log', $this->basePath . '/storage/logs/error.log');
+            ini_set('error_log', BASEPATH. '/storage/logs/error.log');
             error_reporting(E_ALL & ~E_NOTICE);
         }
 
@@ -100,13 +117,13 @@ final class Application
         }
 
         if (!isset($this->router)) {
-            $routeCacheDir = $this->basePath . '/storage/cache/routes';
+            $routeCacheDir = BASEPATH. '/storage/cache/routes';
             $this->router = new Router($routeCacheDir); 
         }
 
         $this->kernel = new Kernel(
             router: $this->router,
-            basePath: $this->basePath,
+            basePath: BASEPATH,
             appPath: $this->appPath,
             environment: $this->environment
         );

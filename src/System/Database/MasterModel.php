@@ -30,7 +30,7 @@ abstract class MasterModel extends QueryBuilder
 
         // Fail-fast on connect so later calls don't explode unpredictably
         try {
-            $this->db->connectIfNeeded();
+            $this->db->connect();
         } catch (\Throwable $e) {
             throw new DatabaseException('Database connection failed.', [], 0, $e);
         }

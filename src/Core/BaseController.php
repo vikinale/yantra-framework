@@ -4,10 +4,18 @@ declare(strict_types=1);
 namespace Core;
 
 use Exception;
+use System\Config;
 use System\Controllers\Controller;
-use System\Core\Response as CoreResponse;
 use System\Http\Request;
 use System\Http\Response;
+use System\Theme\Assets\AssetManager;
+use System\Theme\Resolvers\ConfigThemeResolver;
+use System\Theme\Resolvers\SessionThemeResolver;
+use System\Theme\ThemeManager;
+use System\Theme\ThemeRegistry;
+use System\Theme\ThemeResolverInterface;
+use System\Theme\View\PhpViewRenderer;
+use System\Utilities\SessionStore;
 
 /**
  * BaseController
@@ -42,12 +50,23 @@ abstract class BaseController extends Controller
         503 => 'Service Unavailable',
     ];
 
+    protected ?ThemeManager $theme;
+
+
     public function __construct(Request $request, Response $response)
     {
-        parent::__construct($request, $response);
+        parent::__construct($request, $response); 
+        if(Config::get('app.theme.enabled')??false){
+            $themeRegistry = new ThemeRegistry(BASEPATH. '/themes');
+            $themeRegistry->load();
+            $this->theme =  new ThemeManager(
+                registry: $themeRegistry,
+                renderer: new PhpViewRenderer(),
+                assets: new AssetManager('/themes')
+            );
+        }
     }
 
-    
     /* ========================================================================
      *  JSON helpers
      * ====================================================================== */
