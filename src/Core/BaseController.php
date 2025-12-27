@@ -52,18 +52,19 @@ abstract class BaseController extends Controller
 
     protected ?ThemeManager $theme;
 
-
     public function __construct(Request $request, Response $response)
     {
-        parent::__construct($request, $response); 
-        if(Config::get('app.theme.enabled')??false){
-            $themeRegistry = new ThemeRegistry(BASEPATH. '/themes');
-            $themeRegistry->load();
-            $this->theme =  new ThemeManager(
-                registry: $themeRegistry,
-                renderer: new PhpViewRenderer(),
-                assets: new AssetManager('/themes')
-            );
+        parent::__construct($request, $response);
+        if(!isset($this->theme)){
+            if(Config::get('app.theme.enabled')??false){
+                $themeRegistry = new ThemeRegistry(BASEPATH. '/themes');
+                $themeRegistry->load();
+                $this->theme =  new ThemeManager(
+                    registry: $themeRegistry,
+                    renderer: new PhpViewRenderer(),
+                    assets: new AssetManager('/themes')
+                );
+            }
         }
     }
 
