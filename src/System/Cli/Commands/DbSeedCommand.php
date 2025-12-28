@@ -30,7 +30,9 @@ final class DbSeedCommand extends AbstractCommand
 
     public function run(Input $in, Output $out): int
     {
-        $cfg = (array) Config::get('database');
+        $cfg = (array) Config::get('db');
+
+        $out->writeln($cfg['database_seeder'] ??''); 
 
         $seederClass = $this->getOpt($in, 'class')
             ?? ($cfg['database_seeder'] ?? 'Database\\Seeders\\DatabaseSeeder');

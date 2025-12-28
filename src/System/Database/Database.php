@@ -269,20 +269,47 @@ class Database
      * @return array
      */
     protected function loadConfig(): array
-    {  
-       return  Application::dbConfig();      
-        // $cfg =  Config::get('db');
-        // if(is_array($cfg))
-        //     return $cfg;
+    {
+        // 1) Preferred new config: config/database.php
+        try {
+            $cfg = Config::get('db');
+            if (is_array($cfg) && $cfg !== []) {
+                return $cfg;
+            }
+        } catch (\Throwable $e) {
+            // ignore and fallback
+        }
 
-        // // fallback to default env-driven config
-        // return [
-        //     'host' => getenv('DB_HOST') ?: '127.0.0.1',
-        //     'port' => getenv('DB_PORT') ?: 3306,
-        //     'database' => getenv('DB_DATABASE') ?: '',
-        //     'username' => getenv('DB_USERNAME') ?: '',
-        //     'password' => getenv('DB_PASSWORD') ?: '',
-        //     'charset' => getenv('DB_CHARSET') ?: 'utf8mb4',
-        // ];
+        // 2) Backward compatibility: config/db.php (if your older apps use it)
+        try {
+            $cfg = Config::get('db');
+            if (is_array($cfg) && $cfg !== []) {
+                return $cfg;
+            }
+        } catch (\Throwable $e) {
+            // ignore and fallback
+        }
+
+        // 3) Legacy loader (whatever Application::dbConfig() currently does)
+        try {
+            $cfg = Application::dbConfig();
+            if (is_array($cfg) && $cfg !== []) {
+                return $cfg;
+            }
+        } catch (\Throwable $e) {
+            // ignore and fallback
+        }
+
+        // 4) Final fallback: environment variables
+        return [
+            'host'     => getenv('DB_HOST') ?: '127.0.0.1',
+            'port'     => (int)(getenv('DB_PORT') ?: 3306),
+            'database' => getenv('DB_DATABASE') ?: 'yantra',
+            'username' => getenv('DB_USERNAME') ?: 'root',
+            'password' => getenv('DB_PASSWORD') ?: '',
+            'charset'  => getenv('DB_CHARSET') ?: 'utf8mb4',
+        ];
     }
+
+
 }

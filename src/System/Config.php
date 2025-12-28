@@ -7,21 +7,14 @@ namespace System;
  * Lightweight configuration repository.
  *
  * Core principles:
- * - No hard dependency on an application directory (e.g., App/Config).
- * - Applications may point Yantra to their config directory via setBasePath()/setConfigDir().
+ * - No hard dependency on an application directory (e.g., App/Config). 
  */
 final class Config
 {
-    private static array $settings = [];
-    private static ?string $basePath = null;
-    private static ?string $appPath = null;
-    private static string $configDir = 'config';
-
-    public static function setBasePath(string $basePath): void
-    {
-        self::$basePath = rtrim($basePath, '/\\');
-    }
-
+    public static array $settings = [];
+    public static ?string $appPath = null;
+    public static string $configDir = 'Config';
+ 
     public static function setAppPath(string $appPath): void
     {
         self::$appPath = rtrim($appPath, '/\\');
@@ -40,6 +33,7 @@ final class Config
     public static function read(string $name): array
     {
         $file = self::$appPath . DIRECTORY_SEPARATOR . self::$configDir . DIRECTORY_SEPARATOR . $name . '.php';
+        
 
         if (!is_file($file)) {
             return [];

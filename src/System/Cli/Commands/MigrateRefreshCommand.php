@@ -41,7 +41,12 @@ final class MigrateRefreshCommand extends AbstractCommand
             return 3;
         }
 
-        $cfg  = (array) Config::get('database');
+        if (!$this->hasFlag($in, '--force')) {
+            $out->error(Style::err("Refusing to run without --force (destructive)."));
+            return 3;
+        }
+
+        $cfg  = (array) Config::get('db');
         $path = $this->getOpt($in, 'path')
             ?? ($cfg['migrations_path'] ?? (defined('BASEPATH') ? BASEPATH . '/database/migrations' : 'database/migrations'));
 

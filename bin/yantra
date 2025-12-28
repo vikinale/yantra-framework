@@ -7,39 +7,60 @@ use System\Cli\CommandAutoDiscovery;
 use System\Cli\ConsoleApplication;
 use System\Cli\Commands\HelpCommand;
 use System\Cli\Commands\ListCommand;
-
-$root = dirname(__DIR__);
-define('BASEPATH', $root);
-
+$root = findProjectRoot(getcwd());
 require $root . '/vendor/autoload.php';
+
+use System\Config;
+
+define('BASEPATH', $root);
+// ensure config resolves from the app 
+Config::setAppPath(BASEPATH.'/App');
+Config::setConfigDir('Config');
 
 $registry = new CommandRegistry();
 
-// built-ins (need registry/appName injected)
+// built-ins
 $registry->register(new ListCommand($registry));
 $registry->register(new HelpCommand($registry, 'yantra'));
 
-// auto-register framework commands (zero-arg constructors)
-// CommandAutoDiscovery::registerAll(
-//     $registry,
-//     BASEPATH . '/src/System/Cli/Commands',
-//     'System\\Cli\\Commands\\'
-// );
-
-// auto-register framework commands (zero-arg constructors)
+// register framework commands
 CommandAutoDiscovery::registerAll(
     $registry,
     BASEPATH . '/vendor/yantra/framework/src/System/Cli/Commands',
     'System\\Cli\\Commands\\'
 );
 
-// auto-register app commands (if any)
+// register app commands (optional)
 CommandAutoDiscovery::registerAll(
     $registry,
     BASEPATH . '/src/System/Cli/Commands',
     'System\\Cli\\Commands\\'
 );
 
-
 $app = new ConsoleApplication($registry, 'yantra');
 exit($app->run($argv));
+
+function findProjectRoot(string $startDir): string
+{
+    $dir = rtrim($startDir, "/\\");
+    if ($dir === '') $dir = '.';
+
+    // 1) If you are running from app root (typical), this will succeed immediately
+    if (is_file($dir . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php')) {
+        return $dir;
+    }
+
+    // 2) Walk up from CWD to find vendor/autoload.php
+    for ($i = 0; $i < 15; $i++) {
+        $candidate = $dir . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
+        if (is_file($candidate)) {
+            return $dir;
+        }
+        $parent = dirname($dir);
+        if ($parent === $dir) break;
+        $dir = $parent;
+    }
+
+    // 3) Last resort: fall back to current working directory
+    return rtrim((string)getcwd(), "/\\");
+}

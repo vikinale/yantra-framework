@@ -31,7 +31,7 @@ final class MigrateRollbackCommand extends AbstractCommand
 
     public function run(Input $in, Output $out): int
     {
-        $cfg = (array) Config::get('database');
+        $cfg = (array) Config::get('db');
 
         $path = $this->getOpt($in, 'path')
             ?? ($cfg['migrations_path'] ?? (defined('BASEPATH') ? BASEPATH . '/database/migrations' : 'database/migrations'));

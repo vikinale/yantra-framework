@@ -52,7 +52,7 @@ final class RoutesCacheCommand extends AbstractCommand
         Config::setBasePath($base);
         Config::setAppPath($appPath);
 
-        $routesFile = $appPath . DIRECTORY_SEPARATOR . 'config' . DIRECTORY_SEPARATOR . 'routes.php';
+        $routesFile = $appPath . DIRECTORY_SEPARATOR . 'Config' . DIRECTORY_SEPARATOR . 'routes.php';
         if (!is_file($routesFile)) {
             throw new RuntimeException("Routes file not found: {$routesFile}");
         }
