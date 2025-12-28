@@ -3,62 +3,54 @@ declare(strict_types=1);
 
 namespace System\Core;
 
+use RuntimeException;
 use System\Config;
 use System\Core\Routing\Router;
 use System\Http\Request;
 use System\Http\Response;
 use System\Utilities\SessionStore;
 use System\Utilities\NativeSessionAdapter;
-use App\Middleware\MiddlewareMap;
-use RuntimeException;
-use System\Theme\Assets\AssetManager;
-use System\Theme\Resolvers\ConfigThemeResolver;
-use System\Theme\Theme;
-use System\Theme\ThemeManager;
-use System\Theme\ThemeRegistry;
-use System\Theme\View\PhpViewRenderer;
 use System\Utilities\SessionAdapterInterface;
-use Throwable;
+use System\View\ViewRenderer;
+use System\Theme\ThemeRegistry;
+use System\Theme\ThemeManager;
 
 final class Application
 {
-    //private string $basePath;
     private string $appPath;
     private array $config = [];
-    private string $environment = 'development';
+    private string $environment;
 
     private Router $router;
     private Kernel $kernel;
 
-    public function __construct(string $appDir, string $environment = 'development')
+    private ViewRenderer $views;
+    private ?ThemeManager $theme = null;
+
+    public function __construct(string $appDir, string $environment = 'production')
     {
-        //BASEPATH= rtrim($basePath, DIRECTORY_SEPARATOR);
-        $this->appPath  =rtrim(BASEPATH, DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.$appDir; //BASEPATH. '/app';
+        $this->appPath = $this->resolveAppPath($appDir);
         $this->environment = $environment;
 
         $helpers = __DIR__ . '/../functions.php';
-        if (is_file($helpers)) require_once $helpers;
-    }
-    
-    public static function create(string $basePath): self
-    {
-        return new self($basePath);
+        if (is_file($helpers)) {
+            require_once $helpers;
+        }
     }
 
-    public function setAppPath($path): self
+    public static function create(string $appDir = 'app', string $environment = 'production'): self
     {
-        $this->appPath = $path;
-        return $this;
+        return new self($appDir, $environment);
     }
 
-    public static function getBasePath(string $append=''): string
+    public static function getBasePath(string $append = ''): string
     {
-        return rtrim(BASEPATH,DIRECTORY_SEPARATOR). ($append ? DIRECTORY_SEPARATOR . $append : '');
+        return rtrim(BASEPATH, DIRECTORY_SEPARATOR) . ($append ? DIRECTORY_SEPARATOR . $append : '');
     }
 
-    public function getAppPath(string $append=''): string
+    public function getAppPath(string $append = ''): string
     {
-        return $this->appPath . ($append ? DIRECTORY_SEPARATOR . $append : '');
+        return rtrim($this->appPath, DIRECTORY_SEPARATOR) . ($append ? DIRECTORY_SEPARATOR . $append : '');
     }
 
     public function addSessionAdapter(SessionAdapterInterface $adapter): self
@@ -67,45 +59,65 @@ final class Application
         return $this;
     }
 
+    public static function dbConfig(): array
+    {
+        $dbConfig = Config::get('db');
+        if (empty($dbConfig) || !is_array($dbConfig)) {
+            throw new RuntimeException("Invalid DB configuration. Check db.php in configuration directory.");
+        }
+        return $dbConfig;
+    }
+
     public function initRoutes(): self
     {
         if (!isset($this->router)) {
-            $routeCacheDir = BASEPATH. '/storage/cache/routes';
-            $this->router = new Router($routeCacheDir);
+            $this->router = new Router(self::getBasePath('storage/cache/routes'));
         }
-        if ($this->environment === 'development'){
-            $routesSourceFile = BASEPATH . '/app/config/routes.php';
+
+        if ($this->environment === 'development') {
+            $routesSourceFile = self::getBasePath('app/config/routes.php');
+
             if (!is_file($routesSourceFile)) {
-                throw new RuntimeException("Routes file not found at expected location: {$routesSourceFile}");
+                throw new RuntimeException("Routes file not found: {$routesSourceFile}");
             }
 
             $routesDefinition = require $routesSourceFile;
             if (!is_callable($routesDefinition)) {
-                    throw new RuntimeException("Routes file must return a callable(RouteCollector): void");
+                throw new RuntimeException("Routes file must return a callable(RouteCollector): void");
             }
 
             $this->router->compileAndCache($routesDefinition, true);
         }
+
         return $this;
     }
 
     public function boot(): self
     {
-        // 1) Config (your key is 'app', not 'App')
+        // Config base paths
         Config::setBasePath(BASEPATH);
         Config::setAppPath($this->appPath);
 
+        // Load app config once
         $this->config = Config::get('app') ?? [];
-        $this->environment = (string)($this->config['environment'] ?? 'production');
+
+        // Decide environment precedence:
+        // Option A (recommended): constructor arg wins if provided, else config.
+        // If you want config to override always, change this line accordingly.
+        $cfgEnv = (string)($this->config['environment'] ?? '');
+        if ($cfgEnv !== '') {
+            $this->environment = $cfgEnv;
+        }
 
         if ($this->environment === 'development') {
             ini_set('display_errors', '1');
             ini_set('log_errors', '1');
-            ini_set('error_log', BASEPATH. '/storage/logs/error.log');
+            ini_set('error_log', self::getBasePath('storage/logs/error.log'));
             error_reporting(E_ALL & ~E_NOTICE);
         }
 
-        if (!SessionStore::is_init())  {
+        // Sessions
+        if (!SessionStore::is_init()) {
             SessionStore::init(new NativeSessionAdapter([
                 'lifetime' => 0,
                 'path'     => '/',
@@ -116,11 +128,40 @@ final class Application
             ]));
         }
 
+        // Router
         if (!isset($this->router)) {
-            $routeCacheDir = BASEPATH. '/storage/cache/routes';
-            $this->router = new Router($routeCacheDir); 
+            $this->router = new Router(self::getBasePath('storage/cache/routes'));
         }
 
+        // Views (single instance)
+        $this->views = new ViewRenderer([$this->getAppPath('Views')]);
+
+        // Theme (optional)
+        $themeCfg = is_array($this->config['theme'] ?? null) ? $this->config['theme'] : [];
+        $enabled  = (bool)($themeCfg['enabled'] ?? false);
+ 
+        if ($enabled) {
+            $registry = new ThemeRegistry((string)($themeCfg['root'] ?? self::getBasePath('themes')));
+
+            $this->theme = new ThemeManager(
+                registry: $registry,
+                views: $this->views,
+                enabled: true,
+                fallbackToViews: (bool)($themeCfg['fallback_to_views'] ?? true),
+                activeSlug: isset($themeCfg['active']) ? (string)$themeCfg['active'] : null,
+                publicBaseUrl:site_url()
+            );
+
+            $this->theme->boot();
+        } else {
+            $this->theme = null;
+        }
+
+        // Controller factory (inject views + optional theme)
+        $factory = new \System\Core\ControllerFactory($this->views, $this->theme);
+        $this->router->setControllerFactory($factory);
+
+        // Kernel
         $this->kernel = new Kernel(
             router: $this->router,
             basePath: BASEPATH,
@@ -128,18 +169,6 @@ final class Application
             environment: $this->environment
         );
 
-        return $this;
-    }
-
-    public function setRoute(Router $router): self
-    {
-        $this->router = $router;
-        return $this;
-    }
-
-    public function setCacheDir(string $dir): self
-    {
-        $this->router->setCacheDir($dir);
         return $this;
     }
 
@@ -156,18 +185,38 @@ final class Application
             $this->boot();
         }
 
+        // Ensure routes are loaded/compiled according to env
+        $this->initRoutes();
+
         $request  = new Request();
+
+        // IMPORTANT: Response should use the same ViewRenderer created in boot()
         $response = new Response();
+        if (method_exists($response, 'setViewRenderer')) {
+            $response->setViewRenderer($this->views);
+        }
 
         $response = $this->kernel->handle($request, $response);
 
-        // Single emission point (preferred)
         if (method_exists($response, 'emit')) {
             $response->emit();
             return;
         }
 
-        // If Response currently does not implement emit(), then your router/controller
-        // must be echoing. Implement Response::emit() ASAP.
+        throw new RuntimeException('Response::emit() not implemented. Please implement a single emission point.');
+    }
+
+    private function resolveAppPath(string $appDir): string
+    {
+        $appDir = rtrim($appDir, '/\\');
+        if ($appDir === '') {
+            throw new RuntimeException('Application directory cannot be empty.');
+        }
+
+        // Absolute path (Windows or Unix)
+        $isAbs = str_starts_with($appDir, DIRECTORY_SEPARATOR) || preg_match('~^[A-Za-z]:[\\\\/]~', $appDir) === 1;
+        $path = $isAbs ? $appDir : rtrim(BASEPATH, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $appDir;
+
+        return rtrim($path, DIRECTORY_SEPARATOR);
     }
 }

@@ -60,7 +60,7 @@ final class Config
      *   Config::get('security.token_secret');
      *   Config::get('redis.host');
      */
-    public static function get(string $key, $default = null)
+    public static function get(string $key, $default = null) : mixed
     {
         $parts = explode('.', $key);
         $root = array_shift($parts);

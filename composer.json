@@ -27,6 +27,7 @@
       "Yantra\\Tests\\": "tests/"
     }
   },
+ "bin": ["bin/yantra"],
   "minimum-stability": "stable",
   "prefer-stable": true
 }

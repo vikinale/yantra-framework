@@ -9,13 +9,9 @@ use System\Controllers\Controller;
 use System\Http\Request;
 use System\Http\Response;
 use System\Theme\Assets\AssetManager;
-use System\Theme\Resolvers\ConfigThemeResolver;
-use System\Theme\Resolvers\SessionThemeResolver;
 use System\Theme\ThemeManager;
 use System\Theme\ThemeRegistry;
-use System\Theme\ThemeResolverInterface;
 use System\Theme\View\PhpViewRenderer;
-use System\Utilities\SessionStore;
 
 /**
  * BaseController
@@ -50,22 +46,17 @@ abstract class BaseController extends Controller
         503 => 'Service Unavailable',
     ];
 
-    protected ?ThemeManager $theme;
+    // IMPORTANT: nullable and initialized
+    protected ?ThemeManager $theme = null;
 
-    public function __construct(Request $request, Response $response)
+    public function __construct(Request $request, Response $response, ?ThemeManager $theme = null)
     {
         parent::__construct($request, $response);
-        if(!isset($this->theme)){
-            if(Config::get('app.theme.enabled')??false){
-                $themeRegistry = new ThemeRegistry(BASEPATH. '/themes');
-                $themeRegistry->load();
-                $this->theme =  new ThemeManager(
-                    registry: $themeRegistry,
-                    renderer: new PhpViewRenderer(),
-                    assets: new AssetManager('/themes')
-                );
-            }
-        }
+        $this->theme    = $theme; // always initialized
+    }    
+
+    public function setThemeManger(ThemeManager $themeManager){
+        $this->theme = $themeManager;
     }
 
     /* ========================================================================

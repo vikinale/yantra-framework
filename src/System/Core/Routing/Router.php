@@ -17,6 +17,7 @@ use System\Http\Response;
 final class Router
 {
     private string $cacheDir;
+    private ?\System\Core\ControllerFactoryInterface $factory = null;
 
     /** @var array{static: array<string,array>, dynamic: array<int,array>} */
     private array $bucket = ['static' => [], 'dynamic' => []];
@@ -193,6 +194,19 @@ final class Router
         ];
         $this->index = $index;
         $this->loaded = true;
+    }
+
+    public function setControllerFactory(\System\Core\ControllerFactoryInterface $factory): void
+    {
+        $this->factory = $factory;
+    }
+
+    private function instantiateController(string $class, Request $req, Response $res): object
+    {
+        if ($this->factory) {
+            return $this->factory->make($class, $req, $res);
+        }
+        return new $class($req, $res); // legacy
     }
 
     private function applyRedirects(Request $req, Response $res): bool
@@ -487,6 +501,35 @@ final class Router
      * @param mixed $handler Expected: [$class, $method]
      * @param array<string,string> $params
      */
+    // private function invoke(mixed $handler, Request $req, Response $res, array $params): void
+    // {
+    //     if (!is_array($handler) || count($handler) !== 2) {
+    //         throw new \RuntimeException("Invalid route handler. Expected [ControllerClass, method].");
+    //     }
+
+    //     [$class, $method] = $handler;
+
+    //     if (!is_string($class) || $class === '' || !is_string($method) || $method === '') {
+    //         throw new \RuntimeException("Invalid route handler format.");
+    //     }
+
+    //     if (!class_exists($class)) {
+    //         throw new \RuntimeException("Controller not found: {$class}");
+    //     }
+
+    //     $controller = new $class($req, $res);
+
+    //     if (!method_exists($controller, $method)) {
+    //         throw new \RuntimeException("Method not found: {$class}::{$method}");
+    //     }
+
+    //     $controller->$method($params);
+    // }
+
+    /**
+     * @param mixed $handler Expected: [$class, $method]
+     * @param array<string,string> $params
+     */
     private function invoke(mixed $handler, Request $req, Response $res, array $params): void
     {
         if (!is_array($handler) || count($handler) !== 2) {
@@ -503,12 +546,14 @@ final class Router
             throw new \RuntimeException("Controller not found: {$class}");
         }
 
-        $controller = new $class($req, $res);
+        // IMPORTANT: use factory if set (enables ThemeManager/ViewRenderer injection)
+        $controller = $this->instantiateController($class, $req, $res);
 
         if (!method_exists($controller, $method)) {
             throw new \RuntimeException("Method not found: {$class}::{$method}");
         }
 
+        // Keep current behavior (passes params as single argument)
         $controller->$method($params);
     }
 

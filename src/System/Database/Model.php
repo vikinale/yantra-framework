@@ -16,10 +16,10 @@ class Model extends MasterModel
     /**
      * @param array<string,mixed> $dbConfig
      */
-    public function __construct(array $dbConfig, bool $isDev = false, ?\System\Database\Support\LoggerInterface $logger = null)
+    public function __construct(?array $dbConfig, ?\System\Database\Support\LoggerInterface $logger = null)
     {
-        parent::__construct($dbConfig, $isDev, $logger);
-
+        parent::__construct($dbConfig, $logger);
+                
         if ($this->tableName !== '') {
             $this->from($this->tableName);
         }

@@ -11,7 +11,6 @@ use System\Utilities\Validator;
 use System\Utilities\Sanitizer;
 use System\Utilities\ValidationException;
 use RuntimeException;
-use System\View\ViewRenderer;
 
 class Request
 {
@@ -21,6 +20,8 @@ class Request
     private ?RequestCache $requestCache = null;
     private Psr17Factory $psrFactory;
 
+    /** @var array<string,mixed>|null */
+    private ?array $filesCache = null;
     /**
      * Construct from an existing PSR request or build one from globals if null.
      */
@@ -164,13 +165,80 @@ class Request
     }
 
     // Files — mapping PSR UploadedFileInterface to legacy structure
+    // public function allFiles(): array
+    // {
+    //     $out = [];
+    //     foreach ($this->psr->getUploadedFiles() as $key => $uploaded) {
+    //         $out[$key] = $this->convertUploadedFile($uploaded);
+    //     }
+    //     return $out;
+    // }
+
     public function allFiles(): array
     {
-        $out = [];
-        foreach ($this->psr->getUploadedFiles() as $key => $uploaded) {
-            $out[$key] = $this->convertUploadedFile($uploaded);
+        if ($this->filesCache !== null) {
+            return $this->filesCache;
         }
+
+        $psrFiles = $this->psr->getUploadedFiles(); // PSR-7 UploadedFileInterface tree
+        $this->filesCache = $this->mapUploadedFiles($psrFiles);
+
+        return $this->filesCache;
+    }
+    
+    /**
+     * @param array<string,mixed> $files
+     * @return array<string,mixed>
+     */
+    private function mapUploadedFiles(array $files): array
+    {
+        $out = [];
+
+        foreach ($files as $key => $value) {
+            if (is_array($value)) {
+                $out[$key] = $this->mapUploadedFiles($value);
+                continue;
+            }
+
+            if ($value instanceof \Psr\Http\Message\UploadedFileInterface) {
+                // Wrap WITHOUT moving
+                $out[$key] = new \System\Http\UploadedFile($value); // your wrapper
+                continue;
+            }
+
+            $out[$key] = $value;
+        }
+
         return $out;
+    }
+
+    public function storeUploadedFile(
+        \Psr\Http\Message\UploadedFileInterface $file,
+        string $destinationDir,
+        ?string $filename = null
+    ): string {
+        if (!is_dir($destinationDir)) {
+            if (!mkdir($destinationDir, 0775, true) && !is_dir($destinationDir)) {
+                throw new \RuntimeException("Cannot create directory: {$destinationDir}");
+            }
+        }
+
+        $safeName = $filename ?: $this->safeUploadName($file->getClientFilename() ?: 'file');
+        $target = rtrim($destinationDir, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . $safeName;
+
+        // If already moved, moveTo() will throw in most PSR implementations.
+        // You can pre-check by ensuring target not exists and catching exceptions.
+        $file->moveTo($target);
+
+        return $target;
+    }
+
+    private function safeUploadName(string $name): string
+    {
+        $name = trim($name);
+        $name = preg_replace('/[^\w\-.]+/u', '-', $name) ?? 'file';
+        $name = trim($name, '-');
+        return $name !== '' ? $name : 'file';
     }
 
     private function convertUploadedFile($uploaded)

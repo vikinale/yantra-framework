@@ -22,11 +22,11 @@ abstract class MasterModel extends QueryBuilder
     /**
      * @param array<string,mixed> $dbConfig
      */
-    public function __construct(array $dbConfig, bool $isDev = false, ?LoggerInterface $logger = null)
+    public function __construct(?array $dbConfig, ?LoggerInterface $logger = null)
     {
         $logger = $logger ?? new NullLogger();
 
-        $this->db = new Database($dbConfig, $isDev, $logger);
+        $this->db = new Database($dbConfig);
 
         // Fail-fast on connect so later calls don't explode unpredictably
         try {

@@ -1,0 +1,30 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use System\Cli\CommandRegistry;
+use System\Cli\CommandAutoDiscovery;
+use System\Cli\ConsoleApplication;
+use System\Cli\Commands\HelpCommand;
+use System\Cli\Commands\ListCommand;
+
+$root = dirname(__DIR__);
+define('BASEPATH', $root);
+
+require $root . '/vendor/autoload.php';
+
+$registry = new CommandRegistry();
+
+// built-ins (need registry/appName injected)
+$registry->register(new ListCommand($registry));
+$registry->register(new HelpCommand($registry, 'yantra'));
+
+// auto-register framework commands (zero-arg constructors)
+CommandAutoDiscovery::registerAll(
+    $registry,
+    BASEPATH . '/src/System/Cli/Commands',
+    'System\\Cli\\Commands\\'
+);
+
+$app = new ConsoleApplication($registry, 'yantra');
+exit($app->run($argv));

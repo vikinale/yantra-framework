@@ -8,6 +8,7 @@ use PDO;
 use PDOException;
 use PDOStatement;
 use System\Config;
+use System\Core\Application;
 
 /**
  * Database - small PDO wrapper / connection manager
@@ -264,19 +265,20 @@ class Database
      * @return array
      */
     protected function loadConfig(): array
-    {        
-        $cfg =  Config::get('db');
-        if(is_array($cfg))
-            return $cfg;
+    {  
+       return  Application::dbConfig();      
+        // $cfg =  Config::get('db');
+        // if(is_array($cfg))
+        //     return $cfg;
 
-        // fallback to default env-driven config
-        return [
-            'host' => getenv('DB_HOST') ?: '127.0.0.1',
-            'port' => getenv('DB_PORT') ?: 3306,
-            'database' => getenv('DB_DATABASE') ?: '',
-            'username' => getenv('DB_USERNAME') ?: '',
-            'password' => getenv('DB_PASSWORD') ?: '',
-            'charset' => getenv('DB_CHARSET') ?: 'utf8mb4',
-        ];
+        // // fallback to default env-driven config
+        // return [
+        //     'host' => getenv('DB_HOST') ?: '127.0.0.1',
+        //     'port' => getenv('DB_PORT') ?: 3306,
+        //     'database' => getenv('DB_DATABASE') ?: '',
+        //     'username' => getenv('DB_USERNAME') ?: '',
+        //     'password' => getenv('DB_PASSWORD') ?: '',
+        //     'charset' => getenv('DB_CHARSET') ?: 'utf8mb4',
+        // ];
     }
 }

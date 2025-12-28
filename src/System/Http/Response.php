@@ -52,7 +52,11 @@ final class Response implements ResponseInterface
         $this->psr = $resp;
         
         // default views path; adjust if you store in Config
-        $this->view = $view ?? new ViewRenderer([Config::get('app.views.path', BASEPATH . '/app/Views')]);
+        //$this->view = new ViewRenderer([Config::get('app.views.path', BASEPATH . '/app/Views')]);
+    }
+
+    public function setViewRenderer(ViewRenderer $view){
+        $this->view = $view;
     }
 
     // -----------------------
@@ -61,13 +65,6 @@ final class Response implements ResponseInterface
 
     public function getProtocolVersion(): string { return $this->psr->getProtocolVersion(); }
 
-    public function withProtocolVersion($version): self
-    {
-        $new = clone $this;
-        $new->psr = $this->psr->withProtocolVersion($version);
-        return $new;
-    }
-
     public function getHeaders(): array { return $this->psr->getHeaders(); }
     public function hasHeader($name): bool { return $this->psr->hasHeader($name); }
     public function getHeader($name): array { return $this->psr->getHeader($name); }
@@ -75,40 +72,50 @@ final class Response implements ResponseInterface
 
     public function withHeader($name, $value): self
     {
-        $this->psr = $this->psr->withHeader($name, $value);
-        return $this;
+        $clone = clone $this;
+        $clone->psr = $this->psr->withHeader($name, $value);
+        return $clone;
     }
     
     public function withAddedHeader($name, $value): self
     {
-        $new = clone $this;
-        $new->psr = $this->psr->withAddedHeader($name, $value);
-        return $new;
+        $clone = clone $this;
+        $clone->psr = $this->psr->withAddedHeader($name, $value);
+        return $clone;
     }
 
     public function withoutHeader($name): self
     {
-        $new = clone $this;
-        $new->psr = $this->psr->withoutHeader($name);
-        return $new;
+        $clone = clone $this;
+        $clone->psr = $this->psr->withoutHeader($name);
+        return $clone;
+    }
+
+    public function withStatus($code, $reasonPhrase = ''): self
+    {
+        $clone = clone $this;
+        $clone->psr = $this->psr->withStatus($code, $reasonPhrase);
+        return $clone;
+    }
+
+    public function withProtocolVersion($version): self
+    {
+        $clone = clone $this;
+        $clone->psr = $this->psr->withProtocolVersion($version);
+        return $clone;
+    }
+
+    public function withBody(\Psr\Http\Message\StreamInterface $body): self
+    {
+        $clone = clone $this;
+        $clone->psr = $this->psr->withBody($body);
+        return $clone;
     }
 
     public function getBody(): StreamInterface { return $this->psr->getBody(); }
 
-    public function withBody(StreamInterface $body): self
-    {
-        $new = clone $this;
-        $new->psr = $this->psr->withBody($body);
-        return $new;
-    }
 
     public function getStatusCode(): int { return $this->psr->getStatusCode(); }
-
-    public function withStatus(int $code, string $reasonPhrase = ''): self
-    {
-        $this->psr = $this->psr->withStatus($code, $reasonPhrase);
-        return $this;
-    }
 
     public function getReasonPhrase(): string { return $this->psr->getReasonPhrase(); }
 
@@ -306,7 +313,7 @@ final class Response implements ResponseInterface
     // Utilities
     // -----------------------
 
-    public function getPsr7(): self
+    public function getPsr7(): ResponseInterface
     {
         return $this->psr;
     }
