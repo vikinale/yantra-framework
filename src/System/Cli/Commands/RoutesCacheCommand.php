@@ -48,8 +48,7 @@ final class RoutesCacheCommand extends AbstractCommand
         if (defined('BASEPATH') === false) {
             // CLI may not define BASEPATH; but Config wants a base path.
             // If your framework mandates BASEPATH constant, define it in bin/yantra.
-        }
-        Config::setBasePath($base);
+        } 
         Config::setAppPath($appPath);
 
         $routesFile = $appPath . DIRECTORY_SEPARATOR . 'Config' . DIRECTORY_SEPARATOR . 'routes.php';

@@ -94,8 +94,6 @@ final class Application
 
     public function boot(): self
     {
-        // Config base paths
-        Config::setBasePath(BASEPATH);
         Config::setAppPath($this->appPath);
 
         // Load app config once

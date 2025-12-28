@@ -34,6 +34,6 @@ By default, config files are loaded from:
 You can override in your app bootstrap:
 
 ```php
-\System\Config::setBasePath(__DIR__);
-\System\Config::setConfigDir('app/Config');
+\System\Config::setAppPath(APPPATH);
+\System\Config::setConfigDir('Config');
 ``` 
