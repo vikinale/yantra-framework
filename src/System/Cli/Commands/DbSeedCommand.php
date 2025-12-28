@@ -3,11 +3,15 @@ declare(strict_types=1);
 
 namespace System\Cli\Commands;
 
+use System\Cli\AbstractCommand;
+use System\Cli\Input;
+use System\Cli\Output;
+use System\Cli\Style;
 use System\Config;
 use System\Database\Database;
 use System\Database\Seeders\SeederRunner;
 
-final class DbSeedCommand
+final class DbSeedCommand extends AbstractCommand
 {
     public function name(): string { return 'db:seed'; }
 
@@ -16,27 +20,64 @@ final class DbSeedCommand
         return 'Run application seeders (default data).';
     }
 
-    public function run(array $argv = []): int
+    public function usage(): array
+    {
+        return [
+            "yantra db:seed",
+            "yantra db:seed --class=Database\\\\Seeders\\\\DatabaseSeeder",
+        ];
+    }
+
+    public function run(Input $in, Output $out): int
     {
         $cfg = (array) Config::get('database');
 
-        // App-owned seeder class (convention-friendly)
-        $seederClass = $this->argValue($argv, '--class')
+        $seederClass = $this->getOpt($in, 'class')
             ?? ($cfg['database_seeder'] ?? 'Database\\Seeders\\DatabaseSeeder');
 
-        $runner = new SeederRunner(Database::pdo());
-        $runner->run((string)$seederClass);
+        try {
+            $runner = new SeederRunner(Database::pdo());
+            $runner->run((string) $seederClass);
 
-        fwrite(STDOUT, "Seeding complete: {$seederClass}\n");
-        return 0;
+            $out->writeln(Style::ok("Seeding complete: {$seederClass}"));
+            return 0;
+        } catch (\Throwable $e) {
+            $out->error(Style::err("Seeding failed: " . $e->getMessage()));
+            return 1;
+        }
     }
 
-    private function argValue(array $argv, string $name): ?string
+    private function getOpt(Input $in, string $key): ?string
     {
-        foreach ($argv as $i => $a) {
-            if (str_starts_with($a, $name . '=')) return substr($a, strlen($name) + 1);
-            if ($a === $name && isset($argv[$i + 1])) return (string)$argv[$i + 1];
+        if (method_exists($in, 'option')) {
+            $v = $in->option($key);
+            return $v !== null ? (string) $v : null;
         }
+        if (method_exists($in, 'args')) {
+            return $this->parseOpt((array) $in->args(), $key);
+        }
+        return $this->parseOpt((array) ($_SERVER['argv'] ?? []), $key);
+    }
+
+    private function parseOpt(array $argv, string $key): ?string
+    {
+        $flagEq = '--' . $key . '=';
+        $flag   = '--' . $key;
+
+        foreach ($argv as $i => $a) {
+            $a = (string) $a;
+
+            if (str_starts_with($a, $flagEq)) {
+                $val = substr($a, strlen($flagEq));
+                return $val !== '' ? $val : null;
+            }
+
+            if ($a === $flag && isset($argv[$i + 1])) {
+                $val = (string) $argv[$i + 1];
+                return $val !== '' ? $val : null;
+            }
+        }
+
         return null;
     }
 }

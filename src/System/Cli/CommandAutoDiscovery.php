@@ -9,25 +9,56 @@ final class CommandAutoDiscovery
 {
     public static function registerAll(CommandRegistry $registry, string $dir, string $nsPrefix): void
     {
-        $dir = rtrim($dir, '/\\');
-        if (!is_dir($dir)) return;
+        $debug = getenv('YANTRA_CLI_DEBUG') === '1';
 
-        foreach (glob($dir . DIRECTORY_SEPARATOR . '*Command.php') ?: [] as $file) {
+        $dir = rtrim($dir, '/\\');
+        if (!is_dir($dir)) {
+            if ($debug) fwrite(STDERR, "[AutoDiscovery] Not a directory: {$dir}\n");
+            return;
+        }
+
+        $files = glob($dir . DIRECTORY_SEPARATOR . '*Command.php') ?: [];
+        if ($debug) fwrite(STDERR, "[AutoDiscovery] Scanning: {$dir} (" . count($files) . " files)\n");
+
+        foreach ($files as $file) {
             $class = basename($file, '.php');
             $fqcn  = $nsPrefix . $class;
 
-            if (!class_exists($fqcn)) continue;
+            if ($debug) fwrite(STDERR, "\n[AutoDiscovery] File: {$file}\n[AutoDiscovery] FQCN: {$fqcn}\n");
+
+            // IMPORTANT: if autoload mapping doesn't match, class_exists will always be false.
+            // For debugging, attempt to load the file directly.
+            if (!class_exists($fqcn)) {
+                if ($debug) fwrite(STDERR, "[AutoDiscovery] class_exists=false; trying require_once...\n");
+                require_once $file;
+            }
+
+            if (!class_exists($fqcn)) {
+                if ($debug) fwrite(STDERR, "[AutoDiscovery] SKIP: class not found after require_once\n");
+                continue;
+            }
 
             $ref = new ReflectionClass($fqcn);
-            if ($ref->isAbstract()) continue;
 
-            if (!$ref->implementsInterface(\System\Cli\CommandInterface::class)) continue;
+            if ($ref->isAbstract()) {
+                if ($debug) fwrite(STDERR, "[AutoDiscovery] SKIP: abstract class\n");
+                continue;
+            }
 
-            // Only supports zero-arg constructors
+            if (!$ref->implementsInterface(\System\Cli\CommandInterface::class)) {
+                if ($debug) fwrite(STDERR, "[AutoDiscovery] SKIP: does not implement CommandInterface\n");
+                continue;
+            }
+
             $ctor = $ref->getConstructor();
-            if ($ctor && $ctor->getNumberOfRequiredParameters() > 0) continue;
+            if ($ctor && $ctor->getNumberOfRequiredParameters() > 0) {
+                if ($debug) fwrite(STDERR, "[AutoDiscovery] SKIP: constructor requires params\n");
+                continue;
+            }
 
             $registry->register($ref->newInstance());
+            if ($debug) fwrite(STDERR, "[AutoDiscovery] REGISTERED: {$fqcn}\n");
         }
     }
+
 }

@@ -1,0 +1,16 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Models;
+
+use System\Database\Model;
+
+final class ContactModel extends Model
+{
+    protected string $tableName = 'yt_contacts';
+
+    public function __construct()
+    {
+        parent::__construct(null);
+    }
+}

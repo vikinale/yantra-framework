@@ -1,0 +1,6 @@
+# Installation Checklist
+
+composer install
+php vendor/bin/yantra db:check
+php vendor/bin/yantra migrate
+php vendor/bin/yantra db:seed

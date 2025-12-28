@@ -1,0 +1,36 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Controllers;
+
+use App\Models\ContactModel;
+use Core\BaseController;
+use System\Http\Request;
+use System\Http\Response;
+use System\Theme\ThemeManager;
+
+final class HomeController extends BaseController
+{
+    public function __construct(
+        Request $request,
+        Response $response,
+        ?ThemeManager $theme = null
+    ) {
+        parent::__construct($request, $response, $theme);
+    }
+
+    private function render(string $view, array $data = [], ?string $layout = 'layouts/main'): string
+    {
+        return $this->theme->render($view, $data, $layout);
+    }
+
+    public function index(): void
+    {
+        $this->response
+            ->html($this->render('pages/home', [
+                'title' => 'Home',
+                'heading' => 'Welcome to Yantra',
+            ]))
+            ->emitAndExit();
+    }
+}

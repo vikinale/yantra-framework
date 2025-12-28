@@ -1,0 +1,24 @@
+<?php
+declare(strict_types=1);
+
+use System\Database\Migrations\MigrationInterface;
+
+return new class implements MigrationInterface {
+    public function up(PDO $pdo): void
+    {
+        $pdo->exec("
+            CREATE TABLE IF NOT EXISTS yt_contacts (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(120),
+                email VARCHAR(190),
+                message TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+    }
+
+    public function down(PDO $pdo): void
+    {
+        $pdo->exec("DROP TABLE IF EXISTS yt_contacts");
+    }
+};

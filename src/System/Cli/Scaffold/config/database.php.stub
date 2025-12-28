@@ -1,0 +1,5 @@
+<?php
+return [
+    'migrations_path' => BASEPATH . '/database/migrations',
+    'database_seeder' => 'Database\\Seeders\\DatabaseSeeder',
+];

@@ -33,12 +33,13 @@ CommandAutoDiscovery::registerAll(
     'System\\Cli\\Commands\\'
 );
 
-// auto-register app commands (if you keep any app-level CLI commands)
+// auto-register app commands (if any)
 CommandAutoDiscovery::registerAll(
     $registry,
     BASEPATH . '/src/System/Cli/Commands',
     'System\\Cli\\Commands\\'
 );
+
 
 $app = new ConsoleApplication($registry, 'yantra');
 exit($app->run($argv));

@@ -1,0 +1,11 @@
+<?php
+declare(strict_types=1);
+
+use App\Controllers\HomeController;
+
+// Example (adjust to your Router API):
+// $router->get('/', [HomeController::class, 'index']);
+// $router->get('/about', [HomeController::class, 'about']);
+// $router->get('/projects', [HomeController::class, 'projects']);
+// $router->get('/contact', [HomeController::class, 'contact']);
+// $router->post('/contact', [HomeController::class, 'contactSubmit']);
