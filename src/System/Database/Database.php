@@ -110,6 +110,10 @@ class Database
         return self::$instance;
     }
 
+    public static function pdo() : PDO {
+     return self::getInstance()->pdo;   
+    }
+
     /**
      * Return raw PDO instance.
      */

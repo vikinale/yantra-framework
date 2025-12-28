@@ -20,6 +20,20 @@ $registry->register(new ListCommand($registry));
 $registry->register(new HelpCommand($registry, 'yantra'));
 
 // auto-register framework commands (zero-arg constructors)
+// CommandAutoDiscovery::registerAll(
+//     $registry,
+//     BASEPATH . '/src/System/Cli/Commands',
+//     'System\\Cli\\Commands\\'
+// );
+
+// auto-register framework commands (zero-arg constructors)
+CommandAutoDiscovery::registerAll(
+    $registry,
+    BASEPATH . '/vendor/yantra/framework/src/System/Cli/Commands',
+    'System\\Cli\\Commands\\'
+);
+
+// auto-register app commands (if you keep any app-level CLI commands)
 CommandAutoDiscovery::registerAll(
     $registry,
     BASEPATH . '/src/System/Cli/Commands',
