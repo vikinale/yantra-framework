@@ -6,7 +6,7 @@ $vendorDir = dirname(__DIR__);
 $baseDir = dirname($vendorDir);
 
 return array(
-    'Yantra\\Tests\\' => array($baseDir . '/tests'),
+    'Tests\\' => array($baseDir . '/tests'),
     'System\\' => array($baseDir . '/src/System'),
     'Psr\\Log\\' => array($vendorDir . '/psr/log/src'),
     'Psr\\Http\\Server\\' => array($vendorDir . '/psr/http-server-handler/src'),

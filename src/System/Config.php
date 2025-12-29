@@ -33,11 +33,15 @@ final class Config
     public static function read(string $name): array
     {
         $file = self::$appPath . DIRECTORY_SEPARATOR . self::$configDir . DIRECTORY_SEPARATOR . $name . '.php';
+            error_log('APP Path '.self::$appPath);
+             error_log('configDir '.self::$configDir);
         
 
         if (!is_file($file)) {
+            self::$settings[$name] = [];
             return [];
         }
+
 
         $config = require $file;
         if (!is_array($config)) {
@@ -65,9 +69,14 @@ final class Config
 
         // Lazy load config file if not loaded yet
         if (!array_key_exists($root, self::$settings)) {
+            error_log('settings'.json_encode(self::$settings));
             self::read($root);
         }
-
+        // Use array_key_exists, not isset (isset([]) is false)
+        if (!array_key_exists($root, self::$settings)) {
+            return $default;
+        }
+        
         if (!isset(self::$settings[$root])) {
             return $default;
         }

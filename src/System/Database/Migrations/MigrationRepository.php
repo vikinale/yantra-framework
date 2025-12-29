@@ -11,19 +11,33 @@ final class MigrationRepository
     {
     }
 
-    public function ensureTable(): void
-    {
+public function ensureTable(?string $table = 'yt_migrations'): void
+{
+    $driver = strtolower((string)$this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME));
+
+    if ($driver === 'sqlite') {
         $this->pdo->exec("
-            CREATE TABLE IF NOT EXISTS yt_migrations (
-                id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-                migration VARCHAR(255) NOT NULL UNIQUE,
-                batch INT NOT NULL,
-                ran_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                KEY idx_batch (batch),
-                KEY idx_ran_at (ran_at)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            CREATE TABLE IF NOT EXISTS {$table} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                migration TEXT NOT NULL UNIQUE,
+                batch INTEGER NOT NULL,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            );
         ");
+        return;
     }
+
+    // mysql/mariadb
+    $this->pdo->exec("
+        CREATE TABLE IF NOT EXISTS  {$table}  (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            migration VARCHAR(255) NOT NULL UNIQUE,
+            batch INT NOT NULL,
+            applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ");
+}
+
 
     /** @return array<string,true> */
     public function ranMap(): array

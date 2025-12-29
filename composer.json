@@ -14,7 +14,7 @@
     "laminas/laminas-httphandlerrunner": "^2.13"
   },
   "require-dev": {
-    "phpunit/phpunit": "*"
+    "phpunit/phpunit": "11.5"
   },
   "autoload": {
     "psr-4": {
@@ -24,8 +24,11 @@
   },
   "autoload-dev": {
     "psr-4": {
-      "Yantra\\Tests\\": "tests/"
+      "Tests\\": "tests/"
     }
+  },
+   "scripts": {
+    "test": "phpunit"
   },
  "bin": ["bin/yantra"],
   "minimum-stability": "stable",

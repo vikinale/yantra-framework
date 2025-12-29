@@ -139,7 +139,6 @@ class Database
         }
         return $stmt;
     }
-
     /**
      * Connect to the database (lazy).
      *
@@ -151,40 +150,70 @@ class Database
             return;
         }
 
-        $host = $this->config['host'] ?? '127.0.0.1';
-        $port = $this->config['port'] ?? null;
-        $db   = $this->config['database'] ?? '';
-        $user = $this->config['username'] ?? '';
-        $pass = $this->config['password'] ?? '';
-        $charset = $this->config['charset'] ?? 'utf8mb4';
-
-        // Build DSN
-        $dsn = "mysql:host={$host}";
-        if (!empty($port)) {
-            $dsn .= ";port={$port}";
-        }
-        if (!empty($db)) {
-            $dsn .= ";dbname={$db}";
-        }
-        $dsn .= ";charset={$charset}";
-
         // Default PDO options (can be overridden via config['options'])
         $defaultOptions = [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
+            PDO::ATTR_EMULATE_PREPARES   => false,
         ];
 
         $options = $this->config['options'] ?? [];
         $options = $options + $defaultOptions;
 
         try {
+            $driver = strtolower((string)($this->config['driver'] ?? 'mysql'));
+
+            // 1) If DSN explicitly provided, trust it (works for any driver)
+            $dsnOverride = trim((string)($this->config['DSN'] ?? ''));
+            if ($dsnOverride !== '') {
+                $this->pdo = new PDO(
+                    $dsnOverride,
+                    (string)($this->config['username'] ?? ''),
+                    (string)($this->config['password'] ?? ''),
+                    $options
+                );
+                return;
+            }
+
+            // 2) SQLite support (tests + optional production usage)
+            if ($driver === 'sqlite') {
+                $db = (string)($this->config['database'] ?? ':memory:');
+
+                // Accept :memory: and file paths
+                $dsn = ($db === ':memory:')
+                    ? 'sqlite::memory:'
+                    : 'sqlite:' . $db;
+
+                $this->pdo = new PDO($dsn, null, null, $options);
+                return;
+            }
+
+            // 3) MySQL / MariaDB default
+            $host    = (string)($this->config['host'] ?? '127.0.0.1');
+            $port    = $this->config['port'] ?? null;
+            $dbName  = (string)($this->config['database'] ?? '');
+            $user    = (string)($this->config['username'] ?? '');
+            $pass    = (string)($this->config['password'] ?? '');
+            $charset = (string)($this->config['charset'] ?? 'utf8mb4');
+
+            $dsn = "mysql:host={$host}";
+            if (!empty($port)) {
+                $dsn .= ";port={$port}";
+            }
+            if ($dbName !== '') {
+                $dsn .= ";dbname={$dbName}";
+            }
+            if ($charset !== '') {
+                $dsn .= ";charset={$charset}";
+            }
+
             $this->pdo = new PDO($dsn, $user, $pass, $options);
         } catch (PDOException $e) {
-            // Do not leak connection details in production; rethrow a generic message
-            throw new Exception('Database connection error: ' . $e->getMessage());
+            // Avoid leaking secrets; keep message generic but actionable
+            throw new Exception('Database connection error: ' . $e->getMessage(), 0, $e);
         }
-    } 
+    }
+
     
     /**
      * Normalize lastInsertId - PDO returns string. Return string to keep parity with PDO.

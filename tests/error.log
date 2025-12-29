@@ -1,0 +1,39 @@
+[29-Dec-2025 07:45:14 Europe/Berlin] []
+[29-Dec-2025 07:49:26 Europe/Berlin] settings[]
+[29-Dec-2025 07:49:26 Europe/Berlin] File C:\xampp\htdocs\yantra-framework\tests\Config/fixtures/app\Config\app.php
+[29-Dec-2025 07:49:26 Europe/Berlin] []
+[29-Dec-2025 07:49:26 Europe/Berlin] settings{"app":[]}
+[29-Dec-2025 07:49:26 Europe/Berlin] File C:\xampp\htdocs\yantra-framework\tests\Config/fixtures/app\Config\db.php
+[29-Dec-2025 07:51:01 Europe/Berlin] settings[]
+[29-Dec-2025 07:51:01 Europe/Berlin] File C:\xampp\htdocs\yantra-framework\tests\Config/fixtures/app\Config\app.php
+[29-Dec-2025 07:51:01 Europe/Berlin] {"environment":"testing","driver":"sqlite"}
+[29-Dec-2025 07:51:01 Europe/Berlin] settings{"app":{"environment":"testing","driver":"sqlite"}}
+[29-Dec-2025 07:51:01 Europe/Berlin] File C:\xampp\htdocs\yantra-framework\tests\Config/fixtures/app\Config\db.php
+[29-Dec-2025 07:53:03 Europe/Berlin] settings[]
+[29-Dec-2025 07:53:03 Europe/Berlin] APP Path C:\xampp\htdocs\yantra-framework\tests\Config/fixtures/app
+[29-Dec-2025 07:53:03 Europe/Berlin] configDir Config
+[29-Dec-2025 07:53:03 Europe/Berlin] []
+[29-Dec-2025 07:53:03 Europe/Berlin] settings{"app":[]}
+[29-Dec-2025 07:53:03 Europe/Berlin] APP Path C:\xampp\htdocs\yantra-framework\tests\Config/fixtures/app
+[29-Dec-2025 07:53:03 Europe/Berlin] configDir Config
+[29-Dec-2025 07:58:37 Europe/Berlin] settings[]
+[29-Dec-2025 07:58:37 Europe/Berlin] APP Path C:\xampp\htdocs\yantra-framework/tests/fixtures/app
+[29-Dec-2025 07:58:37 Europe/Berlin] configDir Config
+[29-Dec-2025 07:58:37 Europe/Berlin] {"environment":"testing","driver":"sqlite"}
+[29-Dec-2025 07:58:37 Europe/Berlin] settings{"app":{"environment":"testing","driver":"sqlite"}}
+[29-Dec-2025 07:58:37 Europe/Berlin] APP Path C:\xampp\htdocs\yantra-framework/tests/fixtures/app
+[29-Dec-2025 07:58:37 Europe/Berlin] configDir Config
+[29-Dec-2025 07:59:09 Europe/Berlin] settings[]
+[29-Dec-2025 07:59:09 Europe/Berlin] APP Path C:\xampp\htdocs\yantra-framework/tests/fixtures/app
+[29-Dec-2025 07:59:09 Europe/Berlin] configDir Config
+[29-Dec-2025 07:59:09 Europe/Berlin] {"environment":"testing","driver":"sqlite"}
+[29-Dec-2025 07:59:09 Europe/Berlin] settings{"app":{"environment":"testing","driver":"sqlite"}}
+[29-Dec-2025 07:59:09 Europe/Berlin] APP Path C:\xampp\htdocs\yantra-framework/tests/fixtures/app
+[29-Dec-2025 07:59:09 Europe/Berlin] configDir Config
+[29-Dec-2025 07:59:21 Europe/Berlin] settings[]
+[29-Dec-2025 07:59:21 Europe/Berlin] APP Path C:\xampp\htdocs\yantra-framework/tests/fixtures/app
+[29-Dec-2025 07:59:21 Europe/Berlin] configDir Config
+[29-Dec-2025 07:59:21 Europe/Berlin] {"environment":"testing","driver":"sqlite"}
+[29-Dec-2025 07:59:21 Europe/Berlin] settings{"app":{"environment":"testing","driver":"sqlite"}}
+[29-Dec-2025 07:59:21 Europe/Berlin] APP Path C:\xampp\htdocs\yantra-framework/tests/fixtures/app
+[29-Dec-2025 07:59:21 Europe/Berlin] configDir Config

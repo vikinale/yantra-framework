@@ -1,0 +1,1 @@
+{"version":2,"defects":{"ConfigTest::testLoadsConfigFile":7,"DatabaseConnectionTest::testPdoConnection":8,"MigratorTest::testMigrationTableCreated":8},"times":{"ConfigTest::testLoadsConfigFile":0.024,"DatabaseConnectionTest::testPdoConnection":0.022,"MigratorTest::testMigrationTableCreated":0.027}}
