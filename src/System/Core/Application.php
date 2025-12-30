@@ -167,6 +167,39 @@ final class Application
             environment: $this->environment
         );
 
+        $securityResolver = function (string $id): callable {
+            return match ($id) {
+                'sec.cookies'     => new \System\Security\Middleware\CookieHardeningMiddleware(),
+                'sec.normalize'   => new \System\Security\Middleware\RequestNormalizationMiddleware(),
+                'sec.headers:web' => new \System\Security\Middleware\SecurityHeadersMiddleware('web'),
+                'sec.csrf'        => new \System\Security\Middleware\CsrfMiddleware(),
+                'sec.audit'       => new \System\Security\Middleware\AuditMiddleware(),
+                'sec.auth'        => new \System\Security\Middleware\AuthGuardMiddleware(),
+                'sec.csp:web'   => new \System\Security\Middleware\CspNonceMiddleware('web'),
+                'sec.csp:admin' => new \System\Security\Middleware\CspNonceMiddleware('admin'),
+                'sec.login_throttle' => new \System\Security\Middleware\LoginThrottleMiddleware(8, 600),
+                'sec.admin'       => function($req,$res,$next,$params){
+                    $mw = new \System\Security\Middleware\AuthGuardMiddleware();
+                    $mw($req,$res,$next, ['roles'=>'admin','redirect'=>'/login']);
+                },
+                default => throw new \RuntimeException("Unknown middleware: {$id}"),
+            };
+        };
+
+        // Router route/group middleware
+        $this->enableMiddleware($securityResolver);
+
+        // Kernel global middleware + resolver
+        $this->kernel->setMiddlewareResolver($securityResolver);
+        $this->router->setMiddlewareResolver($securityResolver);
+
+        $this->kernel->setGlobalMiddleware([
+            'sec.normalize',
+            'sec.cookies',
+            'sec.headers:web',
+            'sec.audit',
+        ]);
+
         return $this;
     }
 
