@@ -14,17 +14,17 @@ final class Theme
 
     public function viewsPath(): string
     {
-        return $this->rootPath . '/views';
+        return rtrim($this->rootPath, '/\\');
     }
 
     public function assetsPath(): string
     {
-        return $this->rootPath . '/assets';
+        return rtrim($this->rootPath, '/\\') . DIRECTORY_SEPARATOR . 'assets';
     }
 
     public function manifestPath(): ?string
     {
         $m = $this->meta['assets']['manifest'] ?? null;
-        return $m ? $this->rootPath . '/' . ltrim((string)$m, '/') : null;
+        return $m ? rtrim($this->rootPath, '/\\') . DIRECTORY_SEPARATOR . ltrim((string)$m, '/') : null;
     }
 }

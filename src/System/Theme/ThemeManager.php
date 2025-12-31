@@ -157,7 +157,7 @@ final class ThemeManager
         $cur = $theme;
 
         while (true) {
-            $paths[] = rtrim($cur->rootPath, '/\\') . DIRECTORY_SEPARATOR . 'views';
+            $paths[] = $cur->viewsPath();;// rtrim($cur->viewsPath(), '/\\') . DIRECTORY_SEPARATOR ;
 
             if ($cur->parent === null) break;
             $cur = $this->registry->get($cur->parent);
