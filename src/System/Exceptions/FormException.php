@@ -20,10 +20,10 @@ class FormException extends Exception
      * @param array $data Additional data related to the exception
      */
     public function __construct(
-        string $message = "",
-        int $code = 0,
-        Exception $previous = null,
-        array $data = []
+        string $message,
+        int $code,
+        ?array $data,
+        ?Exception $previous,
     ) {
         parent::__construct($message, $code, $previous);
         $this->data = $data;
