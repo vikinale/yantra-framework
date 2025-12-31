@@ -156,7 +156,7 @@ final class Application
         }
 
         // Controller factory (inject views + optional theme)
-        $factory = new \System\Core\ControllerFactory($this->views, $this->theme);
+        $factory = new \System\Core\ControllerFactory($this->theme);
         $this->router->setControllerFactory($factory);
 
         // Kernel

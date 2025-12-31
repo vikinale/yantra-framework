@@ -11,10 +11,7 @@ use System\Theme\ThemeManager;
 
 final class ControllerFactory implements ControllerFactoryInterface
 {
-    public function __construct(
-        private ViewRenderer $views,
-        private ?ThemeManager $theme = null
-    ) {}
+    public function __construct(private ?ThemeManager $theme = null) {}
 
     public function make(string $controllerClass, Request $request, Response $response): object
     {
