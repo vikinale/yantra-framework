@@ -196,7 +196,7 @@ final class Application
         $this->kernel->setGlobalMiddleware([
             'sec.normalize',
             'sec.cookies',
-            'sec.headers:web',
+            // 'sec.headers:web',
             'sec.audit',
         ]);
 

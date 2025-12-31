@@ -237,14 +237,14 @@ class Database
     }
 
     /**
-     * Execute SQL with positional bindings. Returns true on success.
+     * Execute SQL with positional bindings. Returns PDOStatement on success.
      *
      * @param string $query
      * @param array $params
-     * @return bool
+     * @return PDOStatement
      * @throws Exception
      */
-    public function execute(string $query, array $params = []): bool
+    public function execute(string $query, array $params = []): PDOStatement
     {
         $stmt = $this->prepare($query);
         $ok = $stmt->execute($params);
@@ -252,7 +252,7 @@ class Database
             $err = $stmt->errorInfo();
             throw new Exception('Query execute failed: ' . implode(' | ', $err) . "\nSQL: " . $query);
         }
-        return true;
+        return $stmt;
     }
 
     /**
