@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace System\Controllers;
+namespace System;
 
 use Exception;
 use InvalidArgumentException;
@@ -11,8 +11,6 @@ use System\Http\Response;
 use System\Http\Json;
 use System\Http\ApiResponse;
 use System\Security\Csrf;
-use System\Security\Crypto;
-use System\Helpers\UrlHelper;
 use System\Helpers\OriginHelper;
 use System\Helpers\DateHelper;
 use System\Helpers\UploadHelper;

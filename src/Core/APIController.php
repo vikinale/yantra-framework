@@ -1,10 +1,11 @@
 <?php
 declare(strict_types=1);
 
-namespace System\Controllers;
+namespace System\Core;
 
 use InvalidArgumentException;
 use System\Config;
+use System\Controller;
 use System\Http\Request;
 use System\Http\Response;
 use System\Http\Json;

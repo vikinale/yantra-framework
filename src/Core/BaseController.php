@@ -4,14 +4,10 @@ declare(strict_types=1);
 namespace Core;
 
 use Exception;
-use System\Config;
-use System\Controllers\Controller;
+use System\Controller;
 use System\Http\Request;
 use System\Http\Response;
-use System\Theme\Assets\AssetManager;
 use System\Theme\ThemeManager;
-use System\Theme\ThemeRegistry;
-use System\Theme\View\PhpViewRenderer;
 
 /**
  * BaseController
