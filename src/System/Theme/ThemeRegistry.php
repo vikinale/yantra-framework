@@ -7,117 +7,187 @@ use RuntimeException;
 
 final class ThemeRegistry
 {
-    /** @var array<string,Theme> slug => Theme */
+    private string $root;
+    private bool $loaded = false;
+
+    /** @var array<string, Theme> */
     private array $themes = [];
 
-    public function __construct(private string $themesRoot)
+    public function __construct(string $root)
     {
-        $this->themesRoot = rtrim($themesRoot, '/\\');
+        $this->root = rtrim($root, "/\\");
+    }
+
+    public function root(): string
+    {
+        return $this->root;
+    }
+
+    public function isLoaded(): bool
+    {
+        return $this->loaded;
     }
 
     public function load(): void
     {
-        if (!is_dir($this->themesRoot)) {
-            throw new RuntimeException("Themes directory not found: {$this->themesRoot}");
+        if ($this->loaded) {
+            return;
         }
 
-        // 1) scan + register (no parent validation yet)
-        foreach (scandir($this->themesRoot) ?: [] as $dir) {
-            if ($dir === '.' || $dir === '..') continue;
+        if (!is_dir($this->root) || !is_readable($this->root)) {
+            throw new RuntimeException("Themes root is not readable: {$this->root}");
+        }
 
-            $path = $this->themesRoot . DIRECTORY_SEPARATOR . $dir;
+        $entries = scandir($this->root);
+        if ($entries === false) {
+            throw new RuntimeException("Unable to read themes root: {$this->root}");
+        }
+
+        // Filter directories only; stable ordering
+        $slugs = [];
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..') continue;
+
+            $path = $this->root . DIRECTORY_SEPARATOR . $entry;
+
+            // Only direct directories; optionally skip symlinks
             if (!is_dir($path)) continue;
+            if ($this->isDotPath($entry)) continue;
 
-            $slug = $this->sanitizeSlug($dir);
-            if ($slug === '') continue;
+            $slugs[] = $entry;
+        }
+        sort($slugs, SORT_STRING);
 
-            $manifest = $path . DIRECTORY_SEPARATOR . 'theme.json';
-            $meta = [];
-            $parentSlug = null;
+        // Build themes map
+        foreach ($slugs as $slug) {
+            $themeRoot = $this->root . DIRECTORY_SEPARATOR . $slug;
+            $manifest  = $themeRoot . DIRECTORY_SEPARATOR . 'theme.json';
 
-            if (is_file($manifest) && is_readable($manifest)) {
-                $raw = file_get_contents($manifest);
-                $meta = is_string($raw) ? json_decode($raw, true) : [];
-                if (!is_array($meta)) $meta = [];
-
-                if (isset($meta['parent']) && is_string($meta['parent'])) {
-                    $parentSlug = $this->sanitizeSlug($meta['parent']); // STRICT slug
-                    if ($parentSlug === '') $parentSlug = null;
-                }
+            if (!is_file($manifest) || !is_readable($manifest)) {
+                // Treat as "not installed" if no manifest (strict and predictable)
+                continue;
             }
 
-            $displayName = (string)($meta['name'] ?? $slug);
+            $meta = $this->readJson($manifest);
 
-            // Canonical fields (display name is metadata only)
-            $meta['slug'] = $slug;
-            $meta['name'] = $displayName;
-            $meta['parent'] = $parentSlug;
-
-            if (isset($this->themes[$slug])) {
-                throw new RuntimeException("Duplicate theme slug detected: {$slug}");
-            }
+            // If manifest defines slug/name, you can validate it matches folder.
+            // For now, folder name is the canonical slug.
+            $parent = isset($meta['parent']) && is_string($meta['parent']) && trim($meta['parent']) !== ''
+                ? trim($meta['parent'])
+                : null;
 
             $this->themes[$slug] = new Theme(
-                name: $slug,        // canonical identifier = slug
-                rootPath: $path,
-                parent: $parentSlug, // STRICT slug
-                meta: $meta
+                name: $slug,
+                rootPath: $themeRoot,
+                parent: $parent
             );
         }
 
-        // 2) validate parent chains
-        foreach ($this->themes as $slug => $theme) {
-            if ($theme->parent === null) continue;
+        // Validate parents exist + no cycles
+        $this->validateParentLinks();
+        $this->validateNoCycles();
 
-            if (!isset($this->themes[$theme->parent])) {
-                throw new RuntimeException(
-                    "Theme '{$slug}' declares missing parent slug '{$theme->parent}'."
-                );
-            }
-
-            // Optional: detect cycles (classic -> child -> classic etc.)
-            $this->assertNoCycle($slug);
-        }
+        $this->loaded = true;
     }
 
     public function has(string $slug): bool
     {
+        $slug = trim($slug);
+        if ($slug === '') return false;
+
+        $this->load();
         return isset($this->themes[$slug]);
     }
 
     public function get(string $slug): Theme
     {
+        $slug = trim($slug);
+        if ($slug === '') {
+            throw new RuntimeException('Theme slug cannot be empty.');
+        }
+
+        $this->load();
+
         if (!isset($this->themes[$slug])) {
             throw new RuntimeException("Theme not installed: {$slug}");
         }
+
         return $this->themes[$slug];
     }
 
-    /** @return array<string,Theme> */
+    /** @return array<string, Theme> */
     public function all(): array
     {
+        $this->load();
         return $this->themes;
     }
 
-    private function assertNoCycle(string $startSlug): void
+    private function validateParentLinks(): void
     {
-        $seen = [];
-        $cur = $startSlug;
+        foreach ($this->themes as $slug => $theme) {
+            if ($theme->parent === null) continue;
 
-        while (isset($this->themes[$cur]) && $this->themes[$cur]->parent !== null) {
-            if (isset($seen[$cur])) {
-                throw new RuntimeException("Theme parent cycle detected at '{$cur}'.");
+            if (!isset($this->themes[$theme->parent])) {
+                throw new RuntimeException("Theme '{$slug}' has missing parent theme '{$theme->parent}'.");
             }
-            $seen[$cur] = true;
-            $cur = $this->themes[$cur]->parent;
         }
     }
 
-    private function sanitizeSlug(string $value): string
+    private function validateNoCycles(): void
     {
-        $s = strtolower(trim($value));
-        $s = preg_replace('/[^a-z0-9\-_]/', '-', $s) ?? '';
-        $s = preg_replace('/-+/', '-', $s) ?? $s;
-        return trim($s, '-');
+        // DFS cycle detection on parent pointers
+        $visiting = [];
+        $visited  = [];
+
+        foreach ($this->themes as $slug => $_theme) {
+            $this->dfsCheck($slug, $visiting, $visited);
+        }
+    }
+
+    private function dfsCheck(string $slug, array &$visiting, array &$visited): void
+    {
+        if (isset($visited[$slug])) return;
+
+        if (isset($visiting[$slug])) {
+            throw new RuntimeException("Theme parent cycle detected at '{$slug}'.");
+        }
+
+        $visiting[$slug] = true;
+
+        $theme = $this->themes[$slug];
+        if ($theme->parent !== null) {
+            $parent = $theme->parent;
+
+            // parent existence already validated, but keep safe
+            if (!isset($this->themes[$parent])) {
+                throw new RuntimeException("Theme '{$slug}' has missing parent '{$parent}'.");
+            }
+
+            $this->dfsCheck($parent, $visiting, $visited);
+        }
+
+        unset($visiting[$slug]);
+        $visited[$slug] = true;
+    }
+
+    private function readJson(string $file): array
+    {
+        $raw = file_get_contents($file);
+        if ($raw === false) {
+            throw new RuntimeException("Unable to read theme manifest: {$file}");
+        }
+
+        $data = json_decode($raw, true);
+        if (!is_array($data)) {
+            throw new RuntimeException("Invalid JSON in theme manifest: {$file}");
+        }
+
+        return $data;
+    }
+
+    private function isDotPath(string $name): bool
+    {
+        // extra safety
+        return $name === '' || $name[0] === '.';
     }
 }

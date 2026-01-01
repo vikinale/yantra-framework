@@ -3,32 +3,68 @@ declare(strict_types=1);
 
 namespace System\Core;
 
+use ReflectionClass;
+use ReflectionNamedType;
 use RuntimeException;
 use System\Http\Request;
 use System\Http\Response;
-use System\View\ViewRenderer;
-use System\Theme\ThemeManager;
 
 final class ControllerFactory implements ControllerFactoryInterface
 {
-    public function __construct(private ?ThemeManager $theme = null) {}
-
     public function make(string $controllerClass, Request $request, Response $response): object
     {
-        $ref = new \ReflectionClass($controllerClass);
-        $ctor = $ref->getConstructor();
+        if (!class_exists($controllerClass)) {
+            throw new RuntimeException("Controller class not found: {$controllerClass}");
+        }
 
-        if (!$ctor) {
+        $ref = new ReflectionClass($controllerClass);
+
+        if (!$ref->isInstantiable()) {
+            throw new RuntimeException("Controller not instantiable: {$controllerClass}");
+        }
+
+        $ctor = $ref->getConstructor();
+        if ($ctor === null) {
             return $ref->newInstance();
         }
 
-        $argc = $ctor->getNumberOfParameters();
+        $args = [];
+        foreach ($ctor->getParameters() as $param) {
+            $type = $param->getType();
 
-        return match (true) {
-            $argc >= 3 => $ref->newInstance($request, $response, $this->theme), // if your BaseController expects (req,res,theme)
-            default    => $ref->newInstance($request, $response),
-        };
+            if ($type instanceof ReflectionNamedType && !$type->isBuiltin()) {
+                $name = ltrim($type->getName(), '\\');
+
+                if ($name === Request::class) {
+                    $args[] = $request;
+                    continue;
+                }
+
+                if ($name === Response::class) {
+                    $args[] = $response;
+                    continue;
+                }
+            }
+
+            // If param has a default, use it.
+            if ($param->isDefaultValueAvailable()) {
+                $args[] = $param->getDefaultValue();
+                continue;
+            }
+
+            // If nullable, pass null
+            if ($param->allowsNull()) {
+                $args[] = null;
+                continue;
+            }
+
+            $pname = $param->getName();
+            throw new RuntimeException(
+                "Cannot resolve constructor parameter \${$pname} for controller {$controllerClass}. " .
+                "Only Request/Response are auto-injected; other params must be optional or nullable."
+            );
+        }
+
+        return $ref->newInstanceArgs($args);
     }
-
- 
 }

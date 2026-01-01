@@ -17,10 +17,6 @@ final class Theme
         return rtrim($this->rootPath, '/\\');
     }
 
-    public function assetsPath(): string
-    {
-        return rtrim($this->rootPath, '/\\') . DIRECTORY_SEPARATOR . 'assets';
-    }
 
     public function manifestPath(): ?string
     {

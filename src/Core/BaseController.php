@@ -42,18 +42,11 @@ abstract class BaseController extends Controller
         503 => 'Service Unavailable',
     ];
 
-    // IMPORTANT: nullable and initialized
-    protected ?ThemeManager $theme = null;
-
-    public function __construct(Request $request, Response $response, ?ThemeManager $theme = null)
+    public function __construct(Request $request, Response $response)
     {
         parent::__construct($request, $response);
-        $this->theme    = $theme; // always initialized
     }    
 
-    public function setThemeManger(ThemeManager $themeManager){
-        $this->theme = $themeManager;
-    }
 
     /* ========================================================================
      *  JSON helpers

@@ -4,161 +4,150 @@ declare(strict_types=1);
 namespace System\Theme;
 
 use RuntimeException;
-use System\View\ViewRenderer;
+use System\Config;
 
 final class ThemeManager
 {
+    private static ?self $instance = null;
+
+    private bool $enabled = false;
+    private ?string $activeSlug = null;
+
+    private bool $booted = false;
     private ?Theme $active = null;
-    private string $publicBaseUrl;
-    private string $themesPublicPrefix;
-    private string $publicAssetsPrefix;
 
-    public function __construct(
-        private ThemeRegistry $registry,
-        private ViewRenderer $views,
-        private bool $enabled = false,
-        private bool $fallbackToViews = true,
-        private ?string $activeSlug = null,
-        string $publicBaseUrl = '',
-        string $themesPublicPrefix = '/themes',
-        string $publicAssetsPrefix = '/assets'
-    ) {
-        $this->publicBaseUrl = rtrim($publicBaseUrl, '/');
-        $this->themesPublicPrefix = '/' . trim($themesPublicPrefix, '/');
-        $this->publicAssetsPrefix = '/' . trim($publicAssetsPrefix, '/');
-    }
+    private ThemeRegistry $registry;
 
-
-    public function asset(string $path): string
+    public function __construct()
     {
-        $path = ltrim(trim($path), '/');
+        $appCfg   = is_array(Config::get('app')) ? (array) Config::get('app') : [];
+        $themeCfg = is_array($appCfg['theme'] ?? null) ? (array) $appCfg['theme'] : [];
 
-        // 1) Theme chain resolution (child -> parent)
-        if ($this->enabled && $this->active !== null) {
-            $ownerSlug = $this->findAssetOwnerSlug($this->active, $path);
+        $this->enabled    = (bool)($themeCfg['enabled'] ?? false);
+        $this->activeSlug = isset($themeCfg['active']) ? trim((string)$themeCfg['active']) : null;
 
-            if ($ownerSlug !== null) {
-                return $this->publicBaseUrl
-                    . $this->themesPublicPrefix
-                    . '/' . $ownerSlug
-                    . '/assets/' . $path;
-            }
+        if (!defined('BASEPATH')) {
+            throw new RuntimeException('BASEPATH is not defined; cannot resolve themes root.');
         }
 
-        // 2) Fallback to public assets
-        return $this->publicBaseUrl
-            . $this->publicAssetsPrefix
-            . '/' . $path;
+        $themesRoot = rtrim((string)BASEPATH, '/\\') . DIRECTORY_SEPARATOR . 'themes';
+        $this->registry = new ThemeRegistry($themesRoot);
     }
 
+    public static function instance(): self
+    {
+        if (self::$instance === null) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
 
     public function boot(): void
     {
+        if ($this->booted) return;
+        $this->booted = true;
+
         if (!$this->enabled) {
-            return; // theme system inactive
+            return;
         }
 
         $this->registry->load();
 
         $slug = $this->activeSlug ? trim($this->activeSlug) : '';
         if ($slug === '') {
-            throw new RuntimeException("Theme enabled but no active theme slug configured.");
+            throw new RuntimeException('Theme enabled but no active theme slug configured.');
         }
 
         if (!$this->registry->has($slug)) {
-            if ($this->fallbackToViews) {
-                $this->active = null;
-                return; // safe fallback
-            }
             throw new RuntimeException("Active theme slug not installed: {$slug}");
         }
 
         $this->active = $this->registry->get($slug);
     }
 
-    public function isEnabled(): bool
+    /**
+     * Resolve a view (or layout) name to an absolute theme file path.
+     * No fallback to app views. If theme disabled => throws.
+     */
+    public function resolve(string $view): string
     {
-        return $this->enabled;
-    }
-
-    public function hasActiveTheme(): bool
-    {
-        return $this->active !== null;
-    }
-
-    public function activeTheme(): ?Theme
-    {
-        return $this->active;
-    }
-
-    private function findAssetOwnerSlug(Theme $theme, string $assetPath): ?string
-    {
-        $cur = $theme;
-
-        while (true) {
-            $candidate = rtrim($cur->rootPath, '/\\') . DIRECTORY_SEPARATOR . 'assets'
-                . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $assetPath);
-
-            if (is_file($candidate) && is_readable($candidate)) {
-                return $cur->name; // slug
-            }
-
-            if ($cur->parent === null) break;
-            $cur = $this->registry->get($cur->parent);
+        if (!$this->booted) {
+            $this->boot();
         }
 
-        return null;
+        if (!$this->enabled) {
+            throw new RuntimeException('Theme system is disabled.');
+        }
+
+        if ($this->active === null) {
+            throw new RuntimeException('Theme is enabled but no active theme is loaded.');
+        }
+
+        $paths = $this->themeViewPaths($this->active);
+        $file  = $this->findViewFile($view, $paths);
+
+        if ($file === null) {
+            throw new RuntimeException("Theme view not found: {$view}");
+        }
+
+        return $file;
     }
+
     /**
-     * Render a view:
-     * - If active theme exists: search child -> parent chain for view
-     * - Else: render from app views
+     * Render a theme view and optional layout, both from theme chain.
+     * Layout receives $content in $data['content'].
      */
     public function render(string $view, array $data = [], ?string $layout = null): string
     {
- 
-         $data['asset'] = $data['asset'] ?? function (string $path): string {
-            return $this->asset($path);
+        $viewFile = $this->resolve($view);
+        $content  = $this->evaluate($viewFile, $data);
+
+        if ($layout !== null && $layout !== '') {
+            $layoutFile = $this->resolve($layout);
+            $content = $this->evaluate($layoutFile, $data + ['content' => $content]);
+        }
+
+        return $content;
+    }
+
+    /**
+     * Evaluate a PHP template file in isolated scope.
+     */
+    private function evaluate(string $file, array $data): string
+    {
+        if (!is_file($file) || !is_readable($file)) {
+            throw new RuntimeException("Template not readable: {$file}");
+        }
+
+        // Isolated scope to avoid leaking $this etc into templates
+        $renderer = function (string $__file, array $__data): string {
+            extract($__data, EXTR_SKIP);
+            ob_start();
+            try {
+                include $__file;
+            } catch (\Throwable $e) {
+                ob_end_clean();
+                throw $e;
+            }
+            return (string) ob_get_clean();
         };
-        
-        if (!$this->enabled || $this->active === null) {
-            return $this->views->render($view, $data, $layout);
+
+        try {
+            return $renderer($file, $data);
+        } catch (\Throwable $e) {
+            // Wrap for consistent error reporting
+            throw new RuntimeException("Error rendering template: {$file}", 0, $e);
         }
-
-        $paths = $this->themeViewPaths($this->active); // child->parents
-        // Preferred: ViewRenderer supports temporary override paths
-        // If your ViewRenderer doesn't support it, you can add a method:
-        // $this->views->withPaths($paths)->render(...)
-
-        if (method_exists($this->views, 'withPaths')) {
-            return $this->views->withPaths($paths)->render($view, $data, $layout);
-        }
-
-        // Fallback strategy if ViewRenderer can't switch paths:
-        // try theme files manually, then call ViewRenderer with explicit file.
-        $file = $this->findViewFile($view, $paths);
-        if ($file !== null && method_exists($this->views, 'renderFile')) {
-            return $this->views->renderFile($file, $data, $layout);
-        }
-
-        // Last resort fallback to app views
-        if ($this->fallbackToViews) {
-            return $this->views->render($view, $data, $layout);
-        }
-
-        throw new RuntimeException("Theme view not found and fallback disabled: {$view}");
     }
 
     /** @return string[] */
     private function themeViewPaths(Theme $theme): array
     {
-        // Convention: views stored under /views within theme
         $paths = [];
         $cur = $theme;
 
         while (true) {
-            $paths[] = $cur->viewsPath();;// rtrim($cur->viewsPath(), '/\\') . DIRECTORY_SEPARATOR ;
-
+            $paths[] = $cur->viewsPath(); // filesystem path to /views
             if ($cur->parent === null) break;
             $cur = $this->registry->get($cur->parent);
         }
@@ -168,12 +157,17 @@ final class ThemeManager
 
     private function findViewFile(string $view, array $paths): ?string
     {
+        // Normalize and prevent traversal
         $rel = str_replace(['..', '\\'], ['', '/'], $view);
         $rel = ltrim($rel, '/');
+        if ($rel === '') {
+            return null;
+        }
+
         $rel .= '.php';
 
         foreach ($paths as $base) {
-            $candidate = rtrim($base, '/\\') . DIRECTORY_SEPARATOR . $rel;
+            $candidate = rtrim($base, '/\\') . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $rel);
             if (is_file($candidate) && is_readable($candidate)) {
                 return $candidate;
             }
@@ -181,95 +175,3 @@ final class ThemeManager
         return null;
     }
 }
-
-
-/*
-
-declare(strict_types=1);
-
-namespace System\Theme;
-
-use System\Theme\Assets\AssetManager;
-use System\Theme\View\PhpViewRenderer;
-use System\Theme\View\ViewContext;
-use RuntimeException;
-use System\Config;
-use System\Utilities\SessionStore;
-
-final class ThemeManager
-{
-    private ?Theme $theme;
-    public function __construct(
-        private ThemeRegistry $registry, 
-        private PhpViewRenderer $renderer,
-        private AssetManager $assets
-    ) {}
-
-    public function activeTheme(): Theme
-    {        
-        if($this->theme??false)
-            return $this->theme;
-
-        $name = SessionStore::get('active_theme');
-        if(empty($name)){
-            $name = Config::get('app.theme.active')?? 'default';
-            var_dump($name);
-        }
-        if (!$this->registry->has($name)) {
-            // fallback to default if active theme missing
-            $name = $this->registry->has('default') ? 'default' : $name;
-        }
-        $this->theme = $this->registry->get($name);
-        return $this->theme;
-    }
- 
-    public function findView(string $template): string
-    {
-        $template = ltrim($template, '/');
-        $template = str_ends_with($template, '.php') ? $template : ($template . '.php');
-
-        $theme = $this->activeTheme();
-
-        while (true) {
-            $candidate = $theme->viewsPath() . '/' . $template;
-            if (is_file($candidate)) {
-                return $candidate;
-            }
-
-            if (!$theme->parent) {
-                break;
-            }
-            $theme = $this->registry->get($theme->parent);
-        }
-
-        throw new RuntimeException("View not found in theme chain: {$template}");
-    }
-
-    public function asset(string $path): string
-    {
-        return $this->assets->url($this->activeTheme(), $path);
-    }
-
-    public function render(string $template, array $data = [], ?string $layout = null): string
-    {
-        $ctx = new ViewContext($data);
-
-        $body = $this->renderer->renderFile(
-            $this->findView($template),
-            $ctx
-        );
-
-        if ($layout === null) {
-            return $body;
-        }
-
-        // Put body into $content slot; layout can echo $content
-        return $this->renderer->renderFile(
-            $this->findView($layout),
-            $ctx,
-            $body
-        );
-    }
-}
-
-*/

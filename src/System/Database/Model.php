@@ -12,6 +12,12 @@ namespace System\Database;
 class Model extends MasterModel
 {
     protected string $tableName = '';
+    /** @var array<int,string> */
+    protected array $fillable = [];
+
+    protected bool $timestamps = true;
+    protected string $createdAt = 'created_at';
+    protected string $updatedAt = 'updated_at';
 
     /**
      * @param array<string,mixed> $dbConfig
@@ -25,25 +31,67 @@ class Model extends MasterModel
         }
     }
 
-    public function setTable(string $table): static
+    /**
+     * Filter only allowed columns (protects against mass assignment).
+     * @param array<string,mixed> $data
+     * @return array<string,mixed>
+     */
+    protected function onlyFillable(array $data): array
     {
-        $this->tableName = $table;
-        $this->from($table);
-        return $this;
+        if (empty($this->fillable)) return $data;
+
+        $out = [];
+        foreach ($this->fillable as $key) {
+            if (array_key_exists($key, $data)) {
+                $out[$key] = $data[$key];
+            }
+        }
+        return $out;
     }
 
-    public function getTable(): string
+    /**
+     * Create record (returns inserted id).
+     * @param array<string,mixed> $data
+     */
+    public function create(array $data): int
     {
-        return $this->tableName !== '' ? $this->tableName : $this->table;
+        $data = $this->onlyFillable($data);
+
+        if ($this->timestamps) {
+            $now = date('Y-m-d H:i:s');
+            $data[$this->createdAt] = $data[$this->createdAt] ?? $now;
+            $data[$this->updatedAt] = $data[$this->updatedAt] ?? $now;
+        }
+
+        $this->insert($data);
+        return (int)$this->lastInsertId();
     }
 
-    /** @return array<int,array<string,mixed>> */
-    public function all(): array
+    /**
+     * Update by primary key.
+     * @param array<string,mixed> $data
+     */
+    public function updateById(int $id, array $data): bool
+    {
+        $data = $this->onlyFillable($data);
+
+        if ($this->timestamps) {
+            $data[$this->updatedAt] = date('Y-m-d H:i:s');
+        }
+
+        $clone = clone $this;
+        $clone->where($this->getPrimaryKey(), '=', $id);
+        return $clone->update($data) > 0;
+    }
+
+    public function deleteById(int $id): bool
     {
         $clone = clone $this;
-        return $clone->get();
+        $clone->where($this->getPrimaryKey(), '=', $id);
+        return $clone->delete() > 0;
     }
-
+ 
+ 
     /** @return array<string,mixed>|null */
     public function find(mixed $id): ?array
     {

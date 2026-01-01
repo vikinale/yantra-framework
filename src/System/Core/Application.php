@@ -25,7 +25,6 @@ final class Application
     private Kernel $kernel;
 
     private ViewRenderer $views;
-    private ?ThemeManager $theme = null;
 
     public function __construct(string $appDir, string $environment = 'production')
     {
@@ -134,29 +133,29 @@ final class Application
         // Views (single instance)
         $this->views = new ViewRenderer([$this->getAppPath('Views')]);
 
-        // Theme (optional)
-        $themeCfg = is_array($this->config['theme'] ?? null) ? $this->config['theme'] : [];
-        $enabled  = (bool)($themeCfg['enabled'] ?? false);
+        // // Theme (optional)
+        // $themeCfg = is_array($this->config['theme'] ?? null) ? $this->config['theme'] : [];
+        // $enabled  = (bool)($themeCfg['enabled'] ?? false);
  
-        if ($enabled) {
-            $registry = new ThemeRegistry((string)($themeCfg['root'] ?? self::getBasePath('themes')));
+        // if ($enabled) {
+        //     $registry = new ThemeRegistry((string)($themeCfg['root'] ?? self::getBasePath('themes')));
 
-            $this->theme = new ThemeManager(
-                registry: $registry,
-                views: $this->views,
-                enabled: true,
-                fallbackToViews: (bool)($themeCfg['fallback_to_views'] ?? true),
-                activeSlug: isset($themeCfg['active']) ? (string)$themeCfg['active'] : null,
-                publicBaseUrl:site_url()
-            );
+        //     $this->theme = new ThemeManager(
+        //         registry: $registry,
+        //         views: $this->views,
+        //         enabled: true,
+        //         fallbackToViews: (bool)($themeCfg['fallback_to_views'] ?? true),
+        //         activeSlug: isset($themeCfg['active']) ? (string)$themeCfg['active'] : null,
+        //         publicBaseUrl:site_url()
+        //     );
 
-            $this->theme->boot();
-        } else {
-            $this->theme = null;
-        }
+        //     $this->theme->boot();
+        // } else {
+        //     $this->theme = null;
+        // }
 
         // Controller factory (inject views + optional theme)
-        $factory = new \System\Core\ControllerFactory($this->theme);
+        $factory = new \System\Core\ControllerFactory();
         $this->router->setControllerFactory($factory);
 
         // Kernel

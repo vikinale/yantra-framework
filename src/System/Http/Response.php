@@ -114,7 +114,11 @@ final class Response implements ResponseInterface
 
     public function getBody(): StreamInterface { return $this->psr->getBody(); }
 
-
+    public function getViewRenderer(): ViewRenderer
+    {
+        return $this->view;
+    }
+    
     public function getStatusCode(): int { return $this->psr->getStatusCode(); }
 
     public function getReasonPhrase(): string { return $this->psr->getReasonPhrase(); }
@@ -159,6 +163,7 @@ final class Response implements ResponseInterface
 
         return $new;
     }
+    
 
     public function json(mixed $data, int $status = 200, int $jsonOptions = JSON_UNESCAPED_UNICODE): self
     {
