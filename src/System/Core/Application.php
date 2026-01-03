@@ -12,8 +12,6 @@ use System\Utilities\SessionStore;
 use System\Utilities\NativeSessionAdapter;
 use System\Utilities\SessionAdapterInterface;
 use System\View\ViewRenderer;
-use System\Theme\ThemeRegistry;
-use System\Theme\ThemeManager;
 
 final class Application
 {

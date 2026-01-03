@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace System\Utilities;
 
+use System\Security\Middleware\SessionGuard;
+
 final class SessionStore
 {
     private static ?SessionAdapterInterface $adapter = null;
@@ -104,10 +106,37 @@ final class SessionStore
         return self::$started;
     }
 
-    private static function ensureStarted(): void
+    public static function ensureStarted(): void
     {
         if (!self::$started) {
             self::init(null);
         }
+    }
+    
+    public static function loginSuccess(int|string $user_id, string $email, array $roles, string $name){
+            SessionGuard::onLoginSuccess($user_id,$roles,['email'=>$email,'name'=>$name]);
+    }
+
+    // Flash bag stored under 'flash'
+    public static function setFlash(string $key, mixed $value): void
+    {
+        $flash = self::get('flash', []);
+        if (!is_array($flash)) $flash = [];
+        $flash[$key] = $value;
+        self::set('flash', $flash);
+    }
+
+    public static function getFlash(string $key, mixed $default = null): mixed
+    {
+        $flash = self::get('flash', []);
+        if (!is_array($flash)) return $default;
+
+        if (!array_key_exists($key, $flash)) return $default;
+
+        $value = $flash[$key];
+        unset($flash[$key]);
+        self::set('flash', $flash);
+
+        return $value;
     }
 }
