@@ -372,39 +372,65 @@ final class Router
      * Builds an executable pipeline:
      *   mw1(mw2(mw3(core)))
      *
+     * Middleware callable signature:
+     *   function(Request $req, Response $res, callable $next, array $params): void
+     *
+     * Route params (path vars) remain available via $routeParams (passed to invoke).
+     * Middleware params (alias params) are passed as 4th arg to middleware callable.
+     *
      * @param array<int,mixed> $middleware
      * @param callable():void $core
-     * @param array<string,string> $params
+     * @param array<string,string> $routeParams
      */
     private function buildMiddlewarePipeline(
         array $middleware,
         callable $core,
         Request $req,
         Response $res,
-        array $params
+        array $routeParams
     ): callable {
         // Normalize list: only strings/callables allowed
         $list = [];
         foreach ($middleware as $mw) {
+            if (is_callable($mw)) {
+                $list[] = ['callable' => $mw, 'params' => []];
+                continue;
+            }
+
             if (is_string($mw)) {
-                $mw = trim($mw);
-                if ($mw !== '') {
-                    $list[] = $mw;
+                $id = trim($mw);
+                if ($id !== '') {
+                    $list[] = ['id' => $id, 'params' => []];
                 }
                 continue;
             }
-            if (is_callable($mw)) {
-                $list[] = $mw;
+
+            if (is_array($mw)) {
+                $id = trim((string)($mw['id'] ?? ''));
+                if ($id === '') continue;
+
+                $p = $mw['params'] ?? [];
+                if (!is_array($p)) $p = [];
+
+                $list[] = ['id' => $id, 'params' => $p];
             }
         }
+
 
         $next = $core;
 
         // Wrap from last to first
-        for ($i = count($list) - 1; $i >= 0; $i--) {
-            $mw = $list[$i];
+       for ($i = count($list) - 1; $i >= 0; $i--) {
+            $item = $list[$i];
 
-            $resolved = is_string($mw) ? $this->resolveMiddleware($mw) : $mw;
+            $resolved = null;
+            $mwParams = $item['params'] ?? [];
+
+            if (isset($item['callable'])) {
+                $resolved = $item['callable'];
+            } else {
+                $resolved = $this->resolveMiddleware((string)$item['id']);
+            }
 
             if (!is_callable($resolved)) {
                 throw new \RuntimeException("Invalid middleware resolved for route.");
@@ -412,15 +438,13 @@ final class Router
 
             $prevNext = $next;
 
-            $next = function() use ($resolved, $req, $res, $prevNext, $params): void {
-                // Standard signature:
-                // middleware(Request $req, Response $res, callable $next, array $params): void
-                $resolved($req, $res, $prevNext, $params);
+            $next = function() use ($resolved, $req, $res, $prevNext, $mwParams): void {
+                $resolved($req, $res, $prevNext, $mwParams);
             };
         }
-
         return $next;
     }
+
 
     /**
      * Resolve middleware string identifier into callable.
@@ -613,5 +637,43 @@ final class Router
 
         return [$class, $method];
     }
+    /**
+     * Parse middleware token:
+     *   "auth"
+     *   "auth:admin,editor"
+     *   "throttle:60,1"
+     *
+     * Returns: [id, params]
+     *
+     * @return array{0:string,1:array<int,string>}
+     */
+    private function parseMiddlewareToken(string $token): array
+    {
+        $token = trim($token);
+        if ($token === '') {
+            return ['', []];
+        }
+
+        $pos = strpos($token, ':');
+        if ($pos === false) {
+            return [$token, []];
+        }
+
+        $id = trim(substr($token, 0, $pos));
+        if ($id === '') {
+            return ['', []];
+        }
+
+        $raw = trim(substr($token, $pos + 1));
+        if ($raw === '') {
+            return [$id, []];
+        }
+
+        $parts = array_map('trim', explode(',', $raw));
+        $parts = array_values(array_filter($parts, static fn(string $p) => $p !== ''));
+
+        return [$id, $parts];
+    }
+
 
 }

@@ -14,13 +14,8 @@ final class Kernel
     /** @var array<int, mixed> */
     private array $globalMiddleware = [];
 
-    /** @var null|callable(string):callable */
-    private $middlewareResolver = null;
-
     public function __construct(
         private Router $router,
-        private string $basePath,
-        private string $appPath,
         private string $environment = 'production'
     ) {}
 
@@ -36,44 +31,14 @@ final class Kernel
         $this->globalMiddleware = $middleware;
     }
 
-    /**
-     * Resolver to convert string middleware IDs into callables.
-     */
-    public function setMiddlewareResolver(callable $resolver): void
-    {
-        $this->middlewareResolver = $resolver;
-    }
-
     public function handle(Request $request, Response $response): Response
     {
         try {
             $core = function () use ($request, $response): void {
-
-                // 5) Dev: compile routes from source (exactly as you had)
-                $routesSourceFile = $this->basePath . '/app/config/routes.php';
-                if ($this->environment === 'development' && is_file($routesSourceFile)) {
-                    $routesDefinition = require $routesSourceFile;
-                    if (!is_callable($routesDefinition)) {
-                        throw new RuntimeException("Routes file must return a callable(RouteCollector): void");
-                    }
-                    $this->router->compileAndCache($routesDefinition, true);
-                }
-
-                // 6) Load cached routes for current method
                 $this->router->loadFromCacheDir($request->getMethod());
-
-                // Optional: hooks point once routes are loaded
                 if (function_exists('do_action')) {
-                    do_action('init_routes');
+                    $this->router = apply_filters('init_routes', $this->router);
                 }
-
-                // 7) Redirects (optional)
-                $redirectsFile = $this->basePath . '/config/redirects.php';
-                if (is_file($redirectsFile) && method_exists($this->router, 'loadRedirects')) {
-                    $this->router->loadRedirects($redirectsFile);
-                }
-
-                // 8) Dispatch (route-level middleware is handled inside Router)
                 $this->router->dispatch($request, $response);
             };
 
@@ -116,38 +81,7 @@ final class Kernel
             }
         }
 
-        $next = $core;
-
-        for ($i = count($list) - 1; $i >= 0; $i--) {
-            $mw = $list[$i];
-
-            $resolved = is_string($mw) ? $this->resolveMiddleware($mw) : $mw;
-
-            if (!is_callable($resolved)) {
-                throw new RuntimeException("Invalid global middleware resolved.");
-            }
-
-            $prevNext = $next;
-
-            $next = function() use ($resolved, $req, $res, $prevNext, $params): void {
-                $resolved($req, $res, $prevNext, $params);
-            };
-        }
-
-        return $next;
-    }
-
-    private function resolveMiddleware(string $id): callable
-    {
-        if ($this->middlewareResolver === null) {
-            throw new RuntimeException("Kernel middleware resolver not set. Call Kernel::setMiddlewareResolver().");
-        }
-
-        $mw = ($this->middlewareResolver)($id);
-        if (!is_callable($mw)) {
-            throw new RuntimeException("Kernel cannot resolve middleware '{$id}'.");
-        }
-        return $mw;
+        return $core;
     }
 
     private function renderException(Throwable $e, Response $response): Response

@@ -3,114 +3,157 @@ declare(strict_types=1);
 
 namespace Core;
 
-use Exception;
 use System\Controller;
+use System\Http\ApiResponse;
 use System\Http\Request;
 use System\Http\Response;
 use System\Theme\ThemeManager;
+use Throwable;
+use Exception;
+use InvalidArgumentException;
+use System\Helpers\PathHelper;
+use System\Helpers\UploadHelper;
 
 /**
  * BaseController
  *
- * Yantra framework base for all Core & App controllers.
+ * Shared controller utilities for Yantra.
  */
 abstract class BaseController extends Controller
 {
-
-    /** RFC 9110 reason phrases (subset) */
-    protected array $statusPhrases = [
-        200 => 'OK',
-        201 => 'Created',
-        202 => 'Accepted',
-        204 => 'No Content',
-        301 => 'Moved Permanently',
-        302 => 'Found',
-        303 => 'See Other',
-        304 => 'Not Modified',
-        307 => 'Temporary Redirect',
-        308 => 'Permanent Redirect',
-        400 => 'Bad Request',
-        401 => 'Unauthorized',
-        403 => 'Forbidden',
-        404 => 'Not Found',
-        405 => 'Method Not Allowed',
-        409 => 'Conflict',
-        422 => 'Unprocessable Entity',
-        429 => 'Too Many Requests',
-        500 => 'Internal Server Error',
-        502 => 'Bad Gateway',
-        503 => 'Service Unavailable',
-    ];
-
     public function __construct(Request $request, Response $response)
     {
         parent::__construct($request, $response);
-    }    
-
-
-    /* ========================================================================
-     *  JSON helpers
-     * ====================================================================== */
-
-    protected function jsonSuccess(string $message, array $data = []): void
-    {
-        $this->response->json([
-            'status'  => 'success',
-            'message' => $message,
-            'data'    => $data,
-        ]);
     }
 
-    protected function jsonError(string $message, array $data = []): void
+    /* =====================================================
+     | Content negotiation
+     ===================================================== */
+
+    protected function wantsJson(): bool
     {
-        $this->response->json([
-            'status'  => 'error',
-            'message' => $message,
-            'data'    => $data,
-        ], 400);
+        return $this->request->wantsJson();
     }
 
-    protected function jsonValidationError(array $errors, string $message): void
+    /* =====================================================
+     | Response helpers (JSON)
+     ===================================================== */
+
+    protected function success(mixed $data = null, int $status = 200, string $message = ''): never
     {
-        $this->response->json([
-            'status'  => 'error',
-            'message' => $message,
-            'data'    => ['errors' => $errors]
-        ]);
+        ApiResponse::success($this->response, $data, $message, $status);
     }
 
-    
+    protected function error(string $message, int $status = 400, array $errors = [], string $code = 'error'): never
+    {
+        ApiResponse::error($this->response, $message, $status, $errors, $code);
+    }
+
+    protected function validationError(array $errors, string $message = 'Validation failed'): never
+    {
+        ApiResponse::validation($this->response, $errors, $message, 422);
+    }
+
+    protected function successWith(Response $response, mixed $data = null, int $status = 200, string $message = '', ?string $redirect = null): void
+    {
+        ApiResponse::success($response, $data, $message, $status, $redirect);
+    }
+
+    protected function errorWith(Response $response, string $message, int $status = 400, array $errors = [], string $code = 'error'): never
+    {
+        ApiResponse::error($response, $message, $status, $errors, $code);
+    }
+
+/* =====================================================
+     | Redirect helpers (HTML)
+     ===================================================== */
+
+    protected function redirect(string $url, int $status = 302): void
+    {
+        $this->response->redirect($url, $status)->emitAndExit();
+    }
+
     /**
-     * Send a JSON response using the PSR-aware response pipeline.
-     *
-     * @param mixed $data
-     * @param int $statusCode
-     * @param array $headers
+     * Correct redirect after POST/PUT/PATCH.
      */
-    protected function jsonResponse(mixed $data, int $statusCode = 200, array $headers = []): void
+    protected function redirectAfterPost(string $url): void
     {
-        $payload = [
-            'status'  => $statusCode,
-            'message' => $this->statusPhrases[$statusCode] ?? null,
-            'data'    => $data,
-        ];
+        $this->response->redirectSeeOther($url)->emitAndExit();
+    }
 
-        // Prefer Response wrapper json if present.
-        if (isset($this->response) && method_exists($this->response, 'json')) {
-            // json should handle status code
-            $this->response->json($payload, $statusCode);
+    /* =====================================================
+     | Hybrid responder (JSON or HTML)
+     ===================================================== */
+
+    protected function respond(
+        string $redirect,
+        mixed $data = null,
+        string $message = '',
+        int $status = 200
+    ): void {
+        if ($this->wantsJson()) {
+            ApiResponse::success($this->response, $data, $message, $status, $redirect);
             return;
         }
 
-        // Otherwise use PSR response and attach headers.
-        $psr = $this->response->json($payload, $statusCode);
-        foreach ($headers as $k => $v) {
-            $psr = $psr->withHeader($k, (string)$v);
+        $this->redirectAfterPost($redirect);
+    }
+
+    /* =====================================================
+     | View rendering
+     ===================================================== */
+
+    protected function render(string $view, array $data = [], ?string $layout = null): never
+    {
+        $html = ThemeManager::instance()->render($view, $data, $layout);
+        $this->response->html($html)->emitAndExit();
+    }
+
+    /* =====================================================
+     | Exception handling
+     ===================================================== */
+
+    protected function handleException(Throwable $e, int $status = 500): never
+    {
+        error_log($e->getMessage());
+
+        if ($this->wantsJson()) {
+            ApiResponse::error(
+                $this->response,
+                'An unexpected error occurred.',
+                $status
+            );
         }
 
-        $this->emitPsrResponse($psr, true);
+        $this->response->text('Internal Server Error', $status)->emitAndExit();
     }
-    
+
+    /* =====================================================
+     | Input helpers
+     ===================================================== */
+
+    protected function old(array $payload, array $keys): array
+    {
+        $out = [];
+        foreach ($keys as $k) {
+            if (array_key_exists($k, $payload)) {
+                $out[$k] = is_string($payload[$k])
+                    ? trim($payload[$k])
+                    : $payload[$k];
+            }
+        }
+        return $out;
+    }
+
+    protected function int(string $key, int $default = 0): int
+    {
+        $v = $this->request->input($key);
+        return is_numeric($v) ? (int)$v : $default;
+    }
+
+    /* =====================================================
+     | Your existing upload logic stays here
+     ===================================================== */
     /**
      * POST /api/upload_chunk
      */
@@ -150,7 +193,8 @@ abstract class BaseController extends Controller
             }
 
             // validation / store error
-            $this->jsonErrorResponse($result['message'] ?? 'Failed to store chunk', 400);
+            //$this->jsonErrorResponse($result['message'] ?? 'Failed to store chunk', 400);
+            ApiResponse::error($this->response, $result['message'] ?? 'Failed to store chunk', 400, [], 'Bad Request');
             return;
 
         } catch (Exception $e) {
@@ -176,7 +220,7 @@ abstract class BaseController extends Controller
             $total    = isset($body['total']) ? intval($body['total']) : null;
 
             if ($fileId === '') {
-                $this->jsonErrorResponse('Missing fileId', 400);
+                ApiResponse::error($this->response, 'Missing fileId', 400, [], 'Bad Request', []);
                 return;
             }
 
@@ -207,7 +251,8 @@ abstract class BaseController extends Controller
                 return;
             }
 
-            $this->jsonErrorResponse($result['message'] ?? 'Failed to assemble file', 400);
+            //$this->jsonErrorResponse($result['message'] ?? 'Failed to assemble file', 400);
+            ApiResponse::error($this->response, $result['message'] ?? 'Failed to assemble file', 400, [], 'Bad Request', []);
             return;
 
         } catch (Exception $e) {            
@@ -216,4 +261,68 @@ abstract class BaseController extends Controller
             return;
         }
     }
+
+    
+    /* ---------------------------------------------------------------------
+     * Upload helpers (kept compatible with your helper approach)
+     * --------------------------------------------------------------------- */
+
+    protected function handleUploadChunk(array $params = []): void
+    {
+        // Expecting chunk upload fields: fileId, index, total, and $_FILES['chunk']
+        $fileId = (string)($params['fileId'] ?? '');
+        $index  = (int)($params['index'] ?? -1);
+        $total  = (int)($params['total'] ?? 0);
+
+        if ($fileId === '' || $index < 0 || $total <= 0 || empty($_FILES['chunk'])) {
+            $this->error('Invalid upload chunk parameters', 400,[],'Bad Request');
+        }
+
+        try {
+            $tmpDir = PathHelper::join($params['tempBase'], 'yantra_uploads', $fileId);// PathHelper::join(sys_get_temp_dir(), 'yantra_uploads', $fileId);
+            $this->ensureDir($tmpDir);
+
+            UploadHelper::saveChunk($tmpDir, $fileId, $index, $_FILES['chunk']);
+            $this->success(['fileId' => $fileId, 'index' => $index], 200);
+        } catch (Exception $e) {
+            $this->error('Chunk upload failed', 500, [], 'upload_failed');
+        }
+    }
+
+    protected function handleUploadComplete(array $params = []): void
+    {
+        global $app;
+        $fileId   = (string)($params['fileId'] ?? '');
+        $filename = (string)($params['filename'] ?? 'upload.bin');
+        $total    = (int)($params['total'] ?? 0);
+
+        if ($fileId === '' || $total <= 0) {
+            $this->error('Invalid upload completion parameters', 400,[], 'upload_invalid');
+        }
+
+        try {
+            $tmpDir =PathHelper::join($params['tempBase'], 'yantra_uploads', $fileId);// PathHelper::join(sys_get_temp_dir(), 'yantra_uploads', $fileId);
+            $destDir = PathHelper::join($params['uploadsBase'], 'uploads');//PathHelper::join($app->getBasePath(), 'storage', 'uploads');
+            $this->ensureDir($destDir);
+
+            $destPath = PathHelper::join($destDir, $filename);
+
+            UploadHelper::assembleChunks($tmpDir, $destPath,$fileId,$filename, $total);
+
+            $this->success(['path' => $destPath], 200);
+        } catch (Exception $e) {
+            
+            $this->error('Upload completion failed', 500, [], 'upload_failed');
+        }
+    }
+    
+    protected function ensureDir(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            if (!@mkdir($dir, 0775, true) && !is_dir($dir)) {
+                throw new InvalidArgumentException('Failed to create directory: ' . $dir);
+            }
+        }
+    }
+
 }

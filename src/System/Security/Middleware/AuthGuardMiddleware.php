@@ -5,7 +5,7 @@ namespace System\Security\Middleware;
 
 use System\Http\Request;
 use System\Http\Response;
-use System\Security\Session\SessionGuard;
+use System\Security\SessionGuard;
 
 final class AuthGuardMiddleware
 {
@@ -80,25 +80,3 @@ final class AuthGuardMiddleware
         echo $message;
     }
 }
-
-/*
-How to use in routes (admin group)
-
-If your route middleware supports parameters like auth.guard:roles=admin;redirect=/login, keep it simple. If not, use fixed IDs:
-
-sec.auth (authenticated)
-
-sec.admin (admin role)
-
-Example (simple IDs are easier):
-
-$r->group([
-  'prefix' => '/admin',
-  'middleware' => [
-    'sec.auth',     // logged in
-    'sec.admin',    // admin role
-  ],
-], function($r) {
-  $r->get('/dashboard', [App\Controllers\AdminController::class, 'index']);
-});
-*/

@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Security\Auth;
 
-use System\Security\Session\SessionGuard;
+use System\Security\SessionGuard;
 
 final class Auth
 {

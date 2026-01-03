@@ -8,18 +8,14 @@ use System\Database\Database;
 /**
  * Validator
  *
- * Features:
- * - Dot notation + wildcards (items.*.id)
- * - each:<rules> for array elements
- * - Conditional required rules
- * - DB exists/unique checks
- * - Custom rules via extend()
- * - validated() returns nested structure with numeric segments normalized to indexed arrays
- *
- * Additions (controller-friendly):
- * - validate(): bool (alias to passes)
- * - validateOrFail(): array (returns validated or throws ValidationException-like RuntimeException)
- * - firstError(): ?string
+ * Key corrections / hardening:
+ * - Trims scalar strings before validation (fixes email with spaces/newlines)
+ * - email rule rejects arrays/objects and trims
+ * - "sometimes" correctly skips only when field is missing (not when present as null)
+ * - "required_with/without" use presence check (missing vs null) consistently
+ * - hasRule() matching tightened (no accidental prefix matches)
+ * - Bail behavior: stop at first failure when bail is set
+ * - validated() never contains raw password unless you explicitly ask for it; controller should never echo it
  */
 class Validator
 {
@@ -46,7 +42,6 @@ class Validator
     }
 
     /**
-     * Register custom rule callback:
      * callback signature: function(string $fieldPath, mixed $value, array $params, array $data): true|string
      */
     public static function extend(string $name, callable $callback): void
@@ -59,17 +54,12 @@ class Validator
         return $this->passes();
     }
 
-    /**
-     * Returns validated data or throws (useful for APIs/services).
-     * In controllers you can catch and map to response.
-     */
     public function validateOrFail(?string $exceptionMessage = null): array
     {
         if ($this->passes()) {
             return $this->validated();
         }
-        $msg = $exceptionMessage ?? 'Validation failed';
-        throw new \RuntimeException($msg);
+        throw new \RuntimeException($exceptionMessage ?? 'Validation failed');
     }
 
     public function passes(): bool
@@ -80,12 +70,11 @@ class Validator
         foreach ($this->fieldOrder as $field) {
             $rules = $this->rules[$field] ?? [];
 
-            // Expand rules with dot/wildcards to concrete paths
             $paths = $this->expandFieldToPaths($field, $this->data);
 
+            // If no concrete paths exist, validate missing only if required-like rules exist
             if (empty($paths)) {
-                // Field not present - validate missing only when required-like rules exist
-                if ($this->shouldValidateMissingField($field, $rules)) {
+                if ($this->shouldValidateMissingField($rules)) {
                     $paths = [$field];
                 } else {
                     continue;
@@ -94,14 +83,17 @@ class Validator
 
             foreach ($paths as $path) {
                 $missingSentinel = '__MISSING__';
-                $value = $this->getValueByPath($this->data, $path, $missingSentinel);
+                $raw = $this->getValueByPath($this->data, $path, $missingSentinel);
 
-                // If path expanded but actually missing, treat as missing (important for wildcards)
-                if ($value === $missingSentinel) {
-                    $value = null;
+                $isMissing = ($raw === $missingSentinel);
+                $value = $isMissing ? null : $raw;
+
+                // Normalize scalar strings for consistent behavior (email with whitespace etc.)
+                if (is_string($value)) {
+                    $value = trim($value);
                 }
 
-                $this->validateFieldPath($path, $value, $rules, $field);
+                $this->validateFieldPath($path, $value, $rules, $field, $isMissing);
             }
         }
 
@@ -138,19 +130,22 @@ class Validator
     protected function normalizeRules(array $rules): array
     {
         $out = [];
+        $this->fieldOrder = [];
+
         foreach ($rules as $field => $spec) {
             $k = (string)$field;
 
             if (is_string($spec)) {
-                $out[$k] = array_values(array_filter(array_map('trim', explode('|', $spec)), fn($x) => $x !== ''));
+                $out[$k] = array_values(array_filter(array_map('trim', explode('|', $spec)), static fn($x) => $x !== ''));
             } elseif (is_array($spec)) {
                 $out[$k] = $spec;
             } else {
-                $out[$k] = [$spec]; // callable rule
+                $out[$k] = [$spec];
             }
 
             $this->fieldOrder[] = $k;
         }
+
         return $out;
     }
 
@@ -158,25 +153,24 @@ class Validator
      * Validation pipeline
      * ----------------------- */
 
-    protected function validateFieldPath(string $path, mixed $value, array $rules, string $originalFieldKey): void
+    protected function validateFieldPath(string $path, mixed $value, array $rules, string $originalFieldKey, bool $isMissing): void
     {
         $nullable  = $this->hasRule($rules, 'nullable');
         $sometimes = $this->hasRule($rules, 'sometimes');
         $bail      = $this->hasRule($rules, 'bail');
 
-        // sometimes => if key missing AND not required-like => skip
-        // Here, $value===null may mean missing or explicit null. We treat "missing" as null; that's acceptable.
-        if ($value === null && $sometimes && !$this->hasAnyRequiredRule($rules)) {
+        // sometimes: skip entirely if missing and not required-like
+        if ($isMissing && $sometimes && !$this->hasAnyRequiredRule($rules)) {
             return;
         }
 
-        // required handling
+        // required: fail if empty
         if ($this->hasRule($rules, 'required') && $this->isEmptyValue($value)) {
             $this->addErrorFor($path, $this->messageFor($originalFieldKey, 'required', "{$originalFieldKey} is required"));
             return;
         }
 
-        // nullable handling: if empty and nullable, accept and skip further rules
+        // nullable: if empty => accept and stop further checks
         if ($this->isEmptyValue($value) && $nullable) {
             $this->setValidatedValue($path, $value);
             return;
@@ -188,45 +182,45 @@ class Validator
             }
 
             [$rname, $params] = $this->parseRule($rule);
-
-            // Callable rules passed directly
-            if (is_callable($rname)) {
+            
+            // Callable rule directly (ONLY when rule is actually callable object/array, not a string name)
+            if (is_callable($rname) && !is_string($rname)) {
                 $res = call_user_func($rname, $path, $value, $params, $this->data);
                 if ($res !== true) {
                     $msg = is_string($res) ? $res : $this->messageFor($originalFieldKey, 'custom', "{$originalFieldKey} invalid");
                     $this->addErrorFor($path, $msg);
                     if ($bail) return;
-                    break;
                 }
                 continue;
             }
 
-            // Built-in rules
-            $method = 'rule_' . $rname;
+            // Built-in rule
+            $method = 'rule_' . (string)$rname;
             if (method_exists($this, $method)) {
                 $res = $this->{$method}($path, $value, $params, $originalFieldKey);
                 if ($res !== true) {
-                    $this->addErrorFor($path, $this->messageFor($originalFieldKey, $rname, is_string($res) ? $res : "{$originalFieldKey} failed {$rname}"));
+                    $msg = is_string($res) ? $res : "{$originalFieldKey} failed {$rname}";
+                    $this->addErrorFor($path, $this->messageFor($originalFieldKey, (string)$rname, $msg));
                     if ($bail) return;
-                    break;
                 }
                 continue;
             }
 
-            // Custom rule registry
-            if (isset(self::$customRules[$rname])) {
+            // Custom registry rule
+            if (is_string($rname) && isset(self::$customRules[$rname])) {
                 $res = call_user_func(self::$customRules[$rname], $path, $value, $params, $this->data);
                 if ($res !== true) {
-                    $this->addErrorFor($path, $this->messageFor($originalFieldKey, $rname, is_string($res) ? $res : "{$originalFieldKey} failed {$rname}"));
+                    $msg = is_string($res) ? $res : "{$originalFieldKey} failed {$rname}";
+                    $this->addErrorFor($path, $this->messageFor($originalFieldKey, $rname, $msg));
                     if ($bail) return;
-                    break;
                 }
                 continue;
             }
 
-            // Unknown rule => ignore
+            // Unknown rule: ignore
         }
 
+        // If no errors for this path, set validated value
         if (!isset($this->errors[$path])) {
             $this->setValidatedValue($path, $value);
         }
@@ -240,19 +234,34 @@ class Validator
     protected function rule_string($path, $value, $params, $orig) { return is_string($value) ? true : "Must be a string"; }
     protected function rule_numeric($path, $value, $params, $orig) { return is_numeric($value) ? true : "Must be numeric"; }
     protected function rule_integer($path, $value, $params, $orig) { return filter_var($value, FILTER_VALIDATE_INT) !== false ? true : "Must be integer"; }
-    protected function rule_email($path, $value, $params, $orig) { return filter_var($value, FILTER_VALIDATE_EMAIL) ? true : "Invalid email"; }
+
+    protected function rule_email($path, $value, $params, $orig)
+    {
+        if ($value === null || $value === '') return true;
+
+        // After normalizeIncomingValue(), this should be scalar
+        if (!is_scalar($value)) {
+            return "Invalid email";
+        }
+
+        $value = trim((string)$value);
+
+        return filter_var($value, FILTER_VALIDATE_EMAIL) ? true : "Invalid email";
+    }
+
 
     protected function rule_boolean($path, $value, $params, $orig)
     {
         if (is_bool($value)) return true;
         $v = is_string($value) ? strtolower(trim($value)) : $value;
-        return in_array($v, [0,1,'0','1','true','false','yes','no','on','off'], true) ? true : "Must be boolean";
+        return in_array($v, [0, 1, '0', '1', 'true', 'false', 'yes', 'no', 'on', 'off'], true) ? true : "Must be boolean";
     }
 
     protected function rule_url($path, $value, $params, $orig)
     {
         if ($value === null || $value === '') return true;
-        return filter_var($value, FILTER_VALIDATE_URL) ? true : "Invalid URL";
+        if (is_array($value) || is_object($value)) return "Invalid URL";
+        return filter_var((string)$value, FILTER_VALIDATE_URL) ? true : "Invalid URL";
     }
 
     protected function rule_alpha_num($path, $value, $params, $orig)
@@ -310,10 +319,6 @@ class Validator
         return is_array($value) ? true : "Must be an array";
     }
 
-    /**
-     * required_array_keys:key1,key2
-     * Ensures an array has the listed keys (useful for nested objects).
-     */
     protected function rule_required_array_keys($path, $value, $params, $orig)
     {
         if (!is_array($value)) return "Must be an array";
@@ -325,10 +330,6 @@ class Validator
         return true;
     }
 
-    /**
-     * each:<rules> apply given inner rules to each element if array.
-     * Example: 'tags' => 'array|each:string|min:2'
-     */
     protected function rule_each($path, $value, $params, $orig)
     {
         if (!is_array($value)) return "Must be an array";
@@ -339,25 +340,37 @@ class Validator
         }
 
         foreach ($value as $i => $v) {
+            // trim scalar strings inside arrays too
+            if (is_string($v)) $v = trim($v);
+
             foreach ($inner as $r) {
                 [$rname, $rparams] = $this->parseRule($r);
-                $method = 'rule_' . $rname;
 
-                if (method_exists($this, $method)) {
+                // Built-in
+                $method = 'rule_' . (string)$rname;
+                if (is_string($rname) && method_exists($this, $method)) {
                     $res = $this->{$method}($path . '.' . $i, $v, $rparams, $orig);
                     if ($res !== true) {
-                        $this->addErrorFor($path . '.' . $i, $this->messageFor($orig, $rname, is_string($res) ? $res : "Invalid"));
+                        $msg = is_string($res) ? $res : "Invalid 1";
+                        $this->addErrorFor($path . '.' . $i, $this->messageFor($orig, (string)$rname, $msg));
                         return false;
                     }
-                } elseif (isset(self::$customRules[$rname])) {
+                    continue;
+                }
+
+                // Custom
+                if (is_string($rname) && isset(self::$customRules[$rname])) {
                     $res = call_user_func(self::$customRules[$rname], $path . '.' . $i, $v, $rparams, $this->data);
                     if ($res !== true) {
-                        $this->addErrorFor($path . '.' . $i, $this->messageFor($orig, $rname, is_string($res) ? $res : "Invalid"));
+                        $msg = is_string($res) ? $res : "Invalid 2";
+                        $this->addErrorFor($path . '.' . $i, $this->messageFor($orig, (string)$rname, $msg));
                         return false;
                     }
+                    continue;
                 }
             }
         }
+
         return true;
     }
 
@@ -390,7 +403,7 @@ class Validator
     protected function rule_required_with($path, $value, $params, $orig)
     {
         foreach ($params as $p) {
-            if ($this->getValueByPath($this->data, (string)$p, null) !== null) {
+            if ($this->pathExists($this->data, (string)$p)) {
                 return !$this->isEmptyValue($value) ? true : "Field is required when {$p} present";
             }
         }
@@ -400,7 +413,7 @@ class Validator
     protected function rule_required_without($path, $value, $params, $orig)
     {
         foreach ($params as $p) {
-            if ($this->getValueByPath($this->data, (string)$p, null) === null) {
+            if (!$this->pathExists($this->data, (string)$p)) {
                 return !$this->isEmptyValue($value) ? true : "Field is required when {$p} is missing";
             }
         }
@@ -438,11 +451,13 @@ class Validator
     }
 
     /* -----------------------
-     * DB rules (safer identifiers)
+     * DB rules
      * ----------------------- */
 
     protected function rule_exists($path, $value, $params, $orig)
     {
+        if ($value === null || $value === '') return true;
+
         $table = (string)($params[0] ?? '');
         $col   = (string)($params[1] ?? $this->lastSegment($path));
 
@@ -462,6 +477,8 @@ class Validator
 
     protected function rule_unique($path, $value, $params, $orig)
     {
+        if ($value === null || $value === '') return true;
+
         $table  = (string)($params[0] ?? '');
         $col    = (string)($params[1] ?? $this->lastSegment($path));
         $except = $params[2] ?? null;
@@ -471,11 +488,13 @@ class Validator
 
         try {
             $pdo = Database::getInstance()->getPDO();
+
             $sql = "SELECT COUNT(*) FROM `{$table}` WHERE `{$col}` = :val";
             $p   = [':val' => $value];
 
-            if ($except !== null) {
+            if ($except !== null && $except !== '') {
                 $except = (string)$except;
+
                 if (str_contains($except, ':')) {
                     [$exceptCol, $exceptVal] = explode(':', $except, 2);
                     $exceptCol = (string)$exceptCol;
@@ -491,6 +510,7 @@ class Validator
 
             $stmt = $pdo->prepare($sql);
             $stmt->execute($p);
+
             return ((int)$stmt->fetchColumn() === 0) ? true : "Already taken";
         } catch (\Throwable $e) {
             return "Database lookup failed";
@@ -504,8 +524,7 @@ class Validator
     protected function expandFieldToPaths(string $field, array $data): array
     {
         if (strpos($field, '*') === false) {
-            $exists = $this->getValueByPath($data, $field, '__MISSING__') !== '__MISSING__';
-            return $exists ? [$field] : [];
+            return $this->pathExists($data, $field) ? [$field] : [];
         }
 
         $parts = explode('.', $field);
@@ -532,10 +551,9 @@ class Validator
             if (empty($results)) break;
         }
 
-        // Only keep paths that exist
         $out = [];
         foreach ($results as $r) {
-            if ($this->getValueByPath($data, $r, '__MISSING__') !== '__MISSING__') {
+            if ($this->pathExists($data, $r)) {
                 $out[] = $r;
             }
         }
@@ -556,7 +574,26 @@ class Validator
                 return $default;
             }
         }
+
         return $cur;
+    }
+
+    protected function pathExists(array $data, string $path): bool
+    {
+        if ($path === '') return false;
+
+        $parts = explode('.', $path);
+        $cur = $data;
+
+        foreach ($parts as $p) {
+            if (is_array($cur) && array_key_exists($p, $cur)) {
+                $cur = $cur[$p];
+                continue;
+            }
+            return false;
+        }
+
+        return true;
     }
 
     protected function setValidatedValue(string $path, mixed $value): void
@@ -578,15 +615,26 @@ class Validator
 
     protected function parseRule(mixed $rule): array
     {
-        if ($rule === '') return ['', []];
-        if (is_callable($rule)) return [$rule, []];
+        // Callable rules passed directly (Closure, [$obj,'method'], etc.)
+        if (is_callable($rule) && !is_string($rule)) {
+            return [$rule, []];
+        }
 
         $rule = (string)$rule;
-        if (!str_contains($rule, ':')) return [$rule, []];
+        $rule = trim($rule);
+
+        if ($rule === '') return ['', []];
+
+        if (!str_contains($rule, ':')) {
+            return [$rule, []];
+        }
 
         [$name, $rest] = explode(':', $rule, 2);
+        $name = trim($name);
+
         $params = array_map('trim', explode(',', $rest));
-        $params = array_values(array_filter($params, fn($x) => $x !== ''));
+        $params = array_values(array_filter($params, static fn($x) => $x !== ''));
+
         return [$name, $params];
     }
 
@@ -610,9 +658,9 @@ class Validator
     protected function hasRule(array $rules, string $name): bool
     {
         foreach ($rules as $r) {
-            if (is_string($r) && ($r === $name || str_starts_with($r, $name . ':') || str_starts_with($r, $name))) {
-                return true;
-            }
+            if (!is_string($r)) continue;
+            if ($r === $name) return true;
+            if (str_starts_with($r, $name . ':')) return true;
         }
         return false;
     }
@@ -625,14 +673,10 @@ class Validator
         return false;
     }
 
-    protected function shouldValidateMissingField(string $field, array $rules): bool
+    protected function shouldValidateMissingField(array $rules): bool
     {
-        // If required-like rules exist, validate missing.
         if ($this->hasAnyRequiredRule($rules)) return true;
-
-        // sometimes => do not validate missing
         if ($this->hasRule($rules, 'sometimes')) return false;
-
         return false;
     }
 
@@ -646,7 +690,6 @@ class Validator
 
         $keys = array_keys($node);
 
-        // all keys int-like?
         $allInt = true;
         foreach ($keys as $k) {
             if (!(is_int($k) || (is_string($k) && ctype_digit($k)))) {
@@ -676,10 +719,6 @@ class Validator
         return (string)end($parts);
     }
 
-    /**
-     * Allow only [a-zA-Z0-9_]
-     * This is to avoid SQL injection in identifiers (table/column) for exists/unique.
-     */
     protected function isSafeIdentifier(string $s): bool
     {
         return (bool)preg_match('/^[a-zA-Z0-9_]+$/', $s);

@@ -5,11 +5,10 @@ namespace System\Http;
 
 use Laminas\HttpHandlerRunner\Emitter\SapiEmitter;
 use Nyholm\Psr7\Factory\Psr17Factory;
-use Nyholm\Psr7\Stream; 
+use Nyholm\Psr7\Stream;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\StreamInterface;
 use RuntimeException;
-use System\Config;
 use System\View\ViewRenderer;
 
 final class Response implements ResponseInterface
@@ -33,7 +32,8 @@ final class Response implements ResponseInterface
             return;
         }
 
-        $resp = $this->factory->createResponse($status);
+        // Create with status + reason phrase (best-effort)
+        $resp = $this->factory->createResponse($status, HttpStatus::phrase($status));
 
         foreach ($headers as $name => $value) {
             if (is_array($value)) {
@@ -50,12 +50,10 @@ final class Response implements ResponseInterface
         }
 
         $this->psr = $resp;
-        
-        // default views path; adjust if you store in Config
-        //$this->view = new ViewRenderer([Config::get('app.views.path', BASEPATH . '/app/Views')]);
     }
 
-    public function setViewRenderer(ViewRenderer $view){
+    public function setViewRenderer(ViewRenderer $view): void
+    {
         $this->view = $view;
     }
 
@@ -76,7 +74,7 @@ final class Response implements ResponseInterface
         $clone->psr = $this->psr->withHeader($name, $value);
         return $clone;
     }
-    
+
     public function withAddedHeader($name, $value): self
     {
         $clone = clone $this;
@@ -94,7 +92,12 @@ final class Response implements ResponseInterface
     public function withStatus($code, $reasonPhrase = ''): self
     {
         $clone = clone $this;
-        $clone->psr = $this->psr->withStatus($code, $reasonPhrase);
+
+        $phrase = ($reasonPhrase !== null && $reasonPhrase !== '')
+            ? (string)$reasonPhrase
+            : HttpStatus::phrase((int)$code);
+
+        $clone->psr = $this->psr->withStatus((int)$code, $phrase);
         return $clone;
     }
 
@@ -105,7 +108,7 @@ final class Response implements ResponseInterface
         return $clone;
     }
 
-    public function withBody(\Psr\Http\Message\StreamInterface $body): self
+    public function withBody(StreamInterface $body): self
     {
         $clone = clone $this;
         $clone->psr = $this->psr->withBody($body);
@@ -118,7 +121,7 @@ final class Response implements ResponseInterface
     {
         return $this->view;
     }
-    
+
     public function getStatusCode(): int { return $this->psr->getStatusCode(); }
 
     public function getReasonPhrase(): string { return $this->psr->getReasonPhrase(); }
@@ -127,20 +130,58 @@ final class Response implements ResponseInterface
     // Convenience helpers (immutable)
     // -----------------------
 
+    /**
+     * Convenience alias for withHeader (nice for fluent code).
+     */
+    public function header(string $name, string $value): self
+    {
+        return $this->withHeader($name, $value);
+    }
+
+    /**
+     * Bulk set headers.
+     *
+     * @param array<string, string> $headers
+     */
+    public function headers(array $headers): self
+    {
+        $new = clone $this;
+        foreach ($headers as $k => $v) {
+            $new->psr = $new->psr->withHeader((string)$k, (string)$v);
+        }
+        return $new;
+    }
+
+    /**
+     * Set status + reason phrase and include debug/status headers.
+     * These headers are non-standard but extremely useful for SPA clients/logging.
+     */
+    public function statusWithTextHeaders(int $code, ?string $reasonPhrase = null): self
+    {
+        $phrase = ($reasonPhrase !== null && $reasonPhrase !== '')
+            ? $reasonPhrase
+            : HttpStatus::phrase($code);
+
+        $new = clone $this;
+        $new->psr = $this->psr
+            ->withStatus($code, $phrase)
+            ->withHeader('X-Status-Code', (string)$code)
+            ->withHeader('X-Status-Text', $phrase);
+
+        return $new;
+    }
+
     public function html(string $html, int $status = 200): self
     {
         $stream = $this->factory->createStream($html);
 
-        $new = clone $this;
-        $new->psr = $this->psr
-            ->withStatus($status)
+        $new = $this->statusWithTextHeaders($status)
             ->withHeader('Content-Type', 'text/html; charset=utf-8')
             ->withBody($stream);
 
-        // Content-Length is optional for PSR-7; safe when size known
         $size = $stream->getSize();
         if ($size !== null) {
-            $new->psr = $new->psr->withHeader('Content-Length', (string)$size);
+            $new = $new->withHeader('Content-Length', (string)$size);
         }
 
         return $new;
@@ -150,20 +191,17 @@ final class Response implements ResponseInterface
     {
         $stream = $this->factory->createStream($text);
 
-        $new = clone $this;
-        $new->psr = $this->psr
-            ->withStatus($status)
+        $new = $this->statusWithTextHeaders($status)
             ->withHeader('Content-Type', 'text/plain; charset=utf-8')
             ->withBody($stream);
 
         $size = $stream->getSize();
         if ($size !== null) {
-            $new->psr = $new->psr->withHeader('Content-Length', (string)$size);
+            $new = $new->withHeader('Content-Length', (string)$size);
         }
 
         return $new;
     }
-    
 
     public function json(mixed $data, int $status = 200, int $jsonOptions = JSON_UNESCAPED_UNICODE): self
     {
@@ -178,15 +216,13 @@ final class Response implements ResponseInterface
 
         $stream = $this->factory->createStream($payload);
 
-        $new = clone $this;
-        $new->psr = $this->psr
-            ->withStatus($status)
+        $new = $this->statusWithTextHeaders($status)
             ->withHeader('Content-Type', 'application/json; charset=utf-8')
             ->withBody($stream);
 
         $size = $stream->getSize();
         if ($size !== null) {
-            $new->psr = $new->psr->withHeader('Content-Length', (string)$size);
+            $new = $new->withHeader('Content-Length', (string)$size);
         }
 
         return $new;
@@ -206,8 +242,9 @@ final class Response implements ResponseInterface
             $url = '/' . ltrim($url, '/');
         }
 
-        $new = clone $this;
-        $new->psr = $this->psr->withStatus($code)->withHeader('Location', $url);
+        $new = $this->statusWithTextHeaders($code)
+            ->withHeader('Location', $url);
+
         return $new;
     }
 
@@ -220,19 +257,17 @@ final class Response implements ResponseInterface
         $size = filesize($filePath);
         $stream = $this->createStreamFromFile($filePath);
 
-        $new = clone $this;
-        $new->psr = $this->psr
-            ->withStatus(200)
+        $new = $this->statusWithTextHeaders(200)
             ->withHeader('Content-Type', $mime ?? $this->detectMime($filePath))
             ->withBody($stream);
 
         if ($size !== false) {
-            $new->psr = $new->psr->withHeader('Content-Length', (string)$size);
+            $new = $new->withHeader('Content-Length', (string)$size);
         }
 
         if ($downloadName !== null && $downloadName !== '') {
             $safe = basename($downloadName);
-            $new->psr = $new->psr->withHeader('Content-Disposition', 'attachment; filename="' . $safe . '"');
+            $new = $new->withHeader('Content-Disposition', 'attachment; filename="' . $safe . '"');
         }
 
         return $new;
@@ -257,16 +292,14 @@ final class Response implements ResponseInterface
 
         $stream = $this->factory->createStream($binary);
 
-        $new = clone $this;
-        $new->psr = $this->psr
-            ->withStatus(200)
+        $new = $this->statusWithTextHeaders(200)
             ->withHeader('Content-Type', $mime)
             ->withHeader('Content-Disposition', 'attachment; filename="' . basename($fullName) . '"')
             ->withBody($stream);
 
         $size = $stream->getSize();
         if ($size !== null) {
-            $new->psr = $new->psr->withHeader('Content-Length', (string)$size);
+            $new = $new->withHeader('Content-Length', (string)$size);
         }
 
         return $new;
@@ -290,7 +323,17 @@ final class Response implements ResponseInterface
         }
 
         if (!headers_sent()) {
-            http_response_code($resp->getStatusCode());
+            // Ensure reason phrase is present in the status line when possible
+            $code = $resp->getStatusCode();
+            $phrase = $resp->getReasonPhrase();
+            if ($phrase === '') {
+                $phrase = HttpStatus::phrase($code);
+            }
+
+            // Use the 3-arg header() form to send full status line when not using emitter.
+            // This is optional; the emitter already handles status line correctly.
+            header(sprintf('HTTP/%s %d %s', $resp->getProtocolVersion(), $code, $phrase), true, $code);
+
             foreach ($resp->getHeaders() as $name => $values) {
                 foreach ($values as $value) {
                     header(sprintf('%s: %s', $name, $value), false);
@@ -364,11 +407,49 @@ final class Response implements ResponseInterface
         ];
         return $map[$mime] ?? null;
     }
-    
+
     public function view(string $name, array $data = [], ?string $layout = 'layouts/main', int $status = 200): self
     {
         $html = $this->view->render($name, $data, $layout);
         return $this->html($html, $status);
+    }
+
+    /**
+     * Prevent any caching (recommended for login/logout/auth).
+     */
+    public function noStore(): self
+    {
+        $new = clone $this;
+        $new->psr = $new->psr
+            ->withHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private')
+            ->withHeader('Pragma', 'no-cache')
+            ->withHeader('Expires', '0');
+
+        return $new;
+    }
+
+    /**
+     * Public cache headers (optional helper).
+     */
+    public function cachePublic(int $seconds): self
+    {
+        $seconds = max(0, $seconds);
+
+        $new = clone $this;
+        $new->psr = $new->psr
+            ->withHeader('Cache-Control', 'public, max-age=' . $seconds)
+            ->withHeader('Expires', gmdate('D, d M Y H:i:s \G\M\T', time() + $seconds));
+
+        return $new;
+    }
+
+    /**
+     * Redirect that is correct for POST/PUT/PATCH -> GET patterns.
+     * Use 303 by default (See Other).
+     */
+    public function redirectSeeOther(string $url): self
+    {
+        return $this->redirect($url, 303);
     }
 
 }

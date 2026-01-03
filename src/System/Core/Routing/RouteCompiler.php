@@ -117,22 +117,64 @@ final class RouteCompiler
 
     /**
      * @param array<int,mixed> $mw
-     * @return array<int,string>
+     * @return array<int, array{id:string, params:array<string,string>}>
      */
     private function normalizeMiddlewareList(array $mw): array
     {
-        $mw = array_map('strval', $mw);
-        $mw = array_values(array_filter($mw, static fn(string $v) => trim($v) !== ''));
+        $normalizeParams = static function (array $p): array {
+            $out = [];
+            foreach ($p as $k => $v) {
+                $k = trim((string)$k);
+                if ($k === '') continue;
+
+                if (is_bool($v)) {
+                    $v = $v ? '1' : '0';
+                } elseif ($v === null) {
+                    $v = '';
+                } elseif (is_scalar($v)) {
+                    $v = (string)$v;
+                } else {
+                    continue; // ignore arrays/objects
+                }
+
+                $out[$k] = trim((string)$v);
+            }
+            ksort($out);
+            return $out;
+        };
 
         $out = [];
         $seen = [];
-        foreach ($mw as $m) {
-            $m = trim($m);
-            if ($m === '' || isset($seen[$m])) {
+
+        foreach ($mw as $item) {
+            // Legacy string middleware: "auth"
+            if (is_string($item)) {
+                $id = trim($item);
+                if ($id === '') continue;
+
+                $key = $id . '|';
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+
+                $out[] = ['id' => $id, 'params' => []];
                 continue;
             }
-            $seen[$m] = true;
-            $out[] = $m;
+
+            // Structured middleware: ['id'=>'auth','params'=>[...]]
+            if (is_array($item)) {
+                $id = trim((string)($item['id'] ?? ''));
+                if ($id === '') continue;
+
+                $p = $item['params'] ?? [];
+                if (!is_array($p)) $p = [];
+                $p = $normalizeParams($p);
+
+                $key = $id . '|' . http_build_query($p);
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+
+                $out[] = ['id' => $id, 'params' => $p];
+            }
         }
 
         return $out;
@@ -157,7 +199,8 @@ final class RouteCompiler
                 $mw = [];
             }
 
-            $mw = array_values(array_filter(array_map('strval', $mw), static fn($v) => trim((string)$v) !== ''));
+            //$mw = array_values(array_filter(array_map('strval', $mw), static fn($v) => trim((string)$v) !== ''));
+            $mw = $this->normalizeMiddlewareList($mw);
 
             $out[$code] = [
                 'handler'    => $def['handler'] ?? null,

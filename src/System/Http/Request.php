@@ -9,8 +9,8 @@ use Psr\Http\Message\ServerRequestInterface;
 use System\Utilities\RequestCache;
 use System\Utilities\Validator;
 use System\Utilities\Sanitizer;
-use System\Utilities\ValidationException;
 use RuntimeException;
+use System\Exceptions\ValidationException;
 
 class Request
 {
@@ -44,6 +44,224 @@ class Request
 
         $this->basePath = $this->getBasePath();
     }
+
+    /**
+     * Return a header value (first line) or default.
+     *
+     * - Reads from PSR request headers (preferred)
+     * - Falls back to $_SERVER if needed
+     */
+    public function header(string $name, $default = null): ?string
+    {
+        $name = trim($name);
+        if ($name === '') {
+            return $default;
+        }
+
+        // Preferred: PSR-7 header line
+        try {
+            $value = $this->psr->getHeaderLine($name);
+            if ($value !== '') {
+                return $value;
+            }
+        } catch (\Throwable $e) {
+            // ignore and fallback
+        }
+
+        // Fallback: server params (some stacks may not populate PSR headers consistently)
+        $server = $this->psr->getServerParams();
+        $key = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
+
+        if (isset($server[$key]) && is_string($server[$key]) && $server[$key] !== '') {
+            return $server[$key];
+        }
+
+        // Extra fallbacks for common headers mapped differently
+        if (strcasecmp($name, 'Content-Type') === 0) {
+            $ct = $server['CONTENT_TYPE'] ?? ($_SERVER['CONTENT_TYPE'] ?? null);
+            if (is_string($ct) && $ct !== '') return $ct;
+        }
+        if (strcasecmp($name, 'Content-Length') === 0) {
+            $cl = $server['CONTENT_LENGTH'] ?? ($_SERVER['CONTENT_LENGTH'] ?? null);
+            if (is_string($cl) && $cl !== '') return $cl;
+        }
+
+        // Final fallback to $_SERVER (legacy environments)
+        if (isset($_SERVER[$key]) && is_string($_SERVER[$key]) && $_SERVER[$key] !== '') {
+            return $_SERVER[$key];
+        }
+
+        return $default;
+    }
+
+    /**
+     * Return all headers as an associative array of "Header-Name" => "value".
+     * (Optional helper)
+     */
+    public function headers(): array
+    {
+        $out = [];
+
+        // PSR headers (canonical)
+        try {
+            foreach ($this->psr->getHeaders() as $name => $values) {
+                $out[$name] = implode(', ', (array)$values);
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        // Fallback from server params if PSR headers empty
+        if ($out === []) {
+            $server = $this->psr->getServerParams();
+            foreach ($server as $k => $v) {
+                if (!is_string($v)) continue;
+
+                if (str_starts_with($k, 'HTTP_')) {
+                    $name = str_replace('_', '-', strtolower(substr($k, 5)));
+                    $name = implode('-', array_map('ucfirst', explode('-', $name)));
+                    $out[$name] = $v;
+                } elseif ($k === 'CONTENT_TYPE') {
+                    $out['Content-Type'] = $v;
+                } elseif ($k === 'CONTENT_LENGTH') {
+                    $out['Content-Length'] = $v;
+                }
+            }
+        }
+
+        return $out;
+    }
+
+
+    /**
+     * Get Authorization Bearer token if present.
+     *
+     * Looks in:
+     * - Authorization header (preferred)
+     * - Server params fallback (HTTP_AUTHORIZATION / REDIRECT_HTTP_AUTHORIZATION)
+     *
+     * @return string|null
+     */
+    public function bearerToken(): ?string
+    {
+        // Prefer normalized header helper
+        $auth = (string)$this->header('Authorization', '');
+
+        // Fallbacks (some servers don’t pass Authorization into headers)
+        if ($auth === '') {
+            $server = $this->psr->getServerParams();
+            $auth = (string)($server['HTTP_AUTHORIZATION'] ?? $server['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+            if ($auth === '' && isset($_SERVER['HTTP_AUTHORIZATION'])) {
+                $auth = (string)$_SERVER['HTTP_AUTHORIZATION'];
+            }
+            if ($auth === '' && isset($_SERVER['REDIRECT_HTTP_AUTHORIZATION'])) {
+                $auth = (string)$_SERVER['REDIRECT_HTTP_AUTHORIZATION'];
+            }
+        }
+
+        $auth = trim($auth);
+        if ($auth === '') return null;
+
+        // Accept: "Bearer <token>" (case-insensitive)
+        if (preg_match('/^\s*Bearer\s+(.+)\s*$/i', $auth, $m)) {
+            $token = trim((string)$m[1]);
+
+            // Strip surrounding quotes if any
+            if ($token !== '' && ($token[0] === '"' || $token[0] === "'")) {
+                $token = trim($token, "\"'");
+            }
+
+            return $token !== '' ? $token : null;
+        }
+
+        return null;
+    }
+
+    /**
+     * Get CSRF token from request.
+     *
+     * Sources checked (in order):
+     * - Body fields: _csrf, csrf, _token
+     * - Query fields: _csrf, csrf, _token
+     * - Headers: X-CSRF-Token, X-XSRF-TOKEN
+     *
+     * @param array<string> $keys Override accepted body/query keys if you want.
+     * @return string|null
+     */
+    public function csrfToken(array $keys = ['_csrf', 'csrf', '_token']): ?string
+    {
+        // 1) Body / JSON / form (your all() already merges query + body + json)
+        try {
+            $all = $this->all();
+            foreach ($keys as $k) {
+                if (isset($all[$k])) {
+                    $v = $all[$k];
+                    if (is_string($v)) {
+                        $v = trim($v);
+                        if ($v !== '') return $v;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        // 2) Query params explicitly
+        try {
+            $q = $this->getQuery();
+            if (is_array($q)) {
+                foreach ($keys as $k) {
+                    if (isset($q[$k]) && is_string($q[$k])) {
+                        $v = trim($q[$k]);
+                        if ($v !== '') return $v;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
+        // 3) Headers
+        $h = trim((string)$this->header('X-CSRF-Token', ''));
+        if ($h !== '') return $h;
+
+        $h = trim((string)$this->header('X-XSRF-TOKEN', ''));
+        if ($h !== '') return $h;
+
+        return null;
+    }
+
+    public function csrfHeader(): ?string
+    {
+        $h = trim((string)$this->header('X-CSRF-Token', ''));
+        if ($h !== '') return $h;
+
+        $h = trim((string)$this->header('X-XSRF-TOKEN', ''));
+        return $h !== '' ? $h : null;
+    }
+
+    /**
+     * True if Accept header indicates JSON.
+     */
+    public function acceptsJson(): bool
+    {
+        $accept = (string)$this->header('Accept', '');
+        $accept = strtolower($accept);
+        return $accept !== '' && str_contains($accept, 'application/json');
+    }
+
+    /**
+     * True if this request should be answered with JSON:
+     * - XHR (XMLHttpRequest)
+     * - OR Accept: application/json
+     *
+     * Useful for your SPA login flow.
+     */
+    public function wantsJson(): bool
+    {
+        return $this->isAjax() || $this->acceptsJson();
+    }
+
 
     /**
      * factory helper

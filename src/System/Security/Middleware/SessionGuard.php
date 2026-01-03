@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-namespace System\Security\Session;
+namespace System\Security\Middleware;
 
 final class SessionGuard
 {
@@ -68,15 +68,3 @@ final class SessionGuard
         return hash('sha256', $ua . '|' . $ipPrefix);
     }
 }
-
-// App-side login example (DB in app, framework hook called)
-
-// In your app controller/service after verifying password:
-
-// use System\Security\Session\SessionGuard;
-
-// // ... after DB login success:
-// SessionGuard::onLoginSuccess($user->id, $user->roles ?? []);
-
-
-// This single call is the enforcement point.

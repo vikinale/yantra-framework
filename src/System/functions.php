@@ -136,17 +136,17 @@ if (!function_exists('apply_filter')) {
  | Paths
  * -------------------------------------------------------------------------- */
 
-if (!function_exists('base_path')) {
-    function base_path(string $append = ''): string
-    {
-        $base = defined('BASEPATH') ? (string)BASEPATH : dirname(__DIR__);
-        $base = rtrim($base, DIRECTORY_SEPARATOR);
+// if (!function_exists('base_path')) {
+//     function base_path(string $append = ''): string
+//     {
+//         $base = defined('BASEPATH') ? (string)BASEPATH : dirname(__DIR__);
+//         $base = rtrim($base, DIRECTORY_SEPARATOR);
 
-        return $append === ''
-            ? $base
-            : $base . DIRECTORY_SEPARATOR . ltrim($append, DIRECTORY_SEPARATOR);
-    }
-}
+//         return $append === ''
+//             ? $base
+//             : $base . DIRECTORY_SEPARATOR . ltrim($append, DIRECTORY_SEPARATOR);
+//     }
+// }
 
 if (!function_exists('app_path')) {
     function app_path(string $append = ''): string
@@ -231,6 +231,21 @@ if (!function_exists('base_url')) {
     }
 }
 
+if (!function_exists('site_name')) {
+    /**
+     * Alias for base_url (kept for familiarity).
+     */
+    function site_name(?string $append = ''): string
+    {
+        $configured = (string)(Config::get('app.site') ?? '');
+        $configured = rtrim($configured, '/');
+        if ($append === '' || $append === null) {
+                return $configured;
+        }
+        return $configured . '/' . ltrim((string)$append, '/');
+    }
+}
+
 if (!function_exists('site_url')) {
     /**
      * Alias for base_url (kept for familiarity).
@@ -292,6 +307,67 @@ if (!function_exists('current_url')) {
     }
 }
 
+
+if (!function_exists('base_path')) {
+    function base_path(string $append = ''): string
+    {
+        // Normalize slashes
+        $append = trim($append);
+        $append = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $append);
+
+        // Detect absolute paths:
+        // - Unix: /var/www
+        // - Windows drive: C:\path or C:/path
+        // - Windows UNC: \\server\share
+        $isAbsolute =
+            str_starts_with($append, DIRECTORY_SEPARATOR) ||
+            preg_match('~^[A-Za-z]:'.preg_quote(DIRECTORY_SEPARATOR, '~').'~', $append) === 1 ||
+            str_starts_with($append, DIRECTORY_SEPARATOR . DIRECTORY_SEPARATOR);
+
+        if ($isAbsolute) {
+            return rtrim($append, DIRECTORY_SEPARATOR);
+        }
+
+        $base = rtrim(BASEPATH, DIRECTORY_SEPARATOR);
+
+        if ($append === '') {
+            return $base;
+        }
+
+        return $base . DIRECTORY_SEPARATOR . ltrim($append, DIRECTORY_SEPARATOR);
+    }
+}
+if (!function_exists('app_path')) {
+    function app_path(string $append = ''): string
+    {
+        // Normalize slashes
+        $append = trim($append);
+        $append = str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $append);
+
+        // Detect absolute paths:
+        // - Unix: /var/www
+        // - Windows drive: C:\path or C:/path
+        // - Windows UNC: \\server\share
+        $isAbsolute =
+            str_starts_with($append, DIRECTORY_SEPARATOR) ||
+            preg_match('~^[A-Za-z]:'.preg_quote(DIRECTORY_SEPARATOR, '~').'~', $append) === 1 ||
+            str_starts_with($append, DIRECTORY_SEPARATOR . DIRECTORY_SEPARATOR);
+
+        if ($isAbsolute) {
+            return rtrim($append, DIRECTORY_SEPARATOR);
+        }
+
+        $base = rtrim(APPPATH, DIRECTORY_SEPARATOR);
+
+        if ($append === '') {
+            return $base;
+        }
+
+        return $base . DIRECTORY_SEPARATOR . ltrim($append, DIRECTORY_SEPARATOR);
+    }
+}
+
+
 /* --------------------------------------------------------------------------
  | Escaping helpers
  * -------------------------------------------------------------------------- */
@@ -351,5 +427,41 @@ if (!function_exists('dd')) {
             var_dump($v);
         }
         exit(1);
+    }
+}
+
+if (!function_exists('dt')) {
+    function dt(?string $v): string { return $v ? e($v) : '-'; }
+}
+
+/* --------------------------------------------------------------------------
+ | Other IMP
+ * -------------------------------------------------------------------------- */
+
+ if (!function_exists('normalize_email')) {
+    function normalize_email(string $email): string
+    {
+        $email = trim($email);
+        if ($email === '') return '';
+
+        $email = strtolower($email);
+
+        return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
+    }
+ }
+
+if (!function_exists('pick_keys')) {
+    function pick_keys(array $arr, array $keys): array
+    {
+        $result = [];
+
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $arr)) {
+                $result[$key] = is_string($arr[$key])
+                    ? trim($arr[$key])
+                    : $arr[$key];
+            }
+        }
+        return $result;
     }
 }

@@ -232,54 +232,181 @@ final class RouteCollector
     /* -------------------------
      * Middleware utils
      * ------------------------- */
-
-    /**
-     * @param array<int,mixed> $mw
-     * @return array<int,string>
+ 
+/**
+     * Normalize a single middleware token.
+     *
+     * Supported:
+     *  - "auth"
+     *  - "auth:admin"
+     *  - "throttle:60,1"
+     *  - "role:admin, editor"  => "role:admin,editor"
      */
-    private function normalizeMiddlewareList(array $mw): array
+    private function normalizeMiddlewareToken(string $token): string
     {
-        $mw = array_map('strval', $mw);
-        $mw = array_values(array_filter($mw, static fn(string $v) => trim($v) !== ''));
-        // keep order, remove duplicates
+        $token = trim($token);
+        if ($token === '') {
+            return '';
+        }
+
+        // split ONLY on first ":" (allow future params to contain ":" if needed)
+        $pos = strpos($token, ':');
+        if ($pos === false) {
+            return $token; // plain alias
+        }
+
+        $alias = trim(substr($token, 0, $pos));
+        if ($alias === '') {
+            return '';
+        }
+
+        $paramsRaw = trim(substr($token, $pos + 1));
+        if ($paramsRaw === '') {
+            return $alias; // "auth:" -> "auth"
+        }
+
+        $parts = array_map('trim', explode(',', $paramsRaw));
+        $parts = array_values(array_filter($parts, static fn(string $p) => $p !== ''));
+
+        return $parts ? ($alias . ':' . implode(',', $parts)) : $alias;
+    }
+
+/**
+ * @param array<int,mixed> $mw
+ * @return array<int, array{id:string, params:array<string,string>}>
+ */
+private function normalizeMiddlewareList(array $mw): array
+{
+    $normalizeParams = static function (array $p): array {
         $out = [];
-        $seen = [];
-        foreach ($mw as $m) {
-            $m = trim($m);
-            if ($m === '' || isset($seen[$m])) {
+        foreach ($p as $k => $v) {
+            $k = trim((string)$k);
+            if ($k === '') continue;
+
+            if (is_bool($v)) {
+                $v = $v ? '1' : '0';
+            } elseif ($v === null) {
+                $v = '';
+            } elseif (is_scalar($v)) {
+                $v = (string)$v;
+            } else {
+                continue; // ignore arrays/objects
+            }
+
+            $out[$k] = trim((string)$v);
+        }
+        ksort($out);
+        return $out;
+    };
+
+    $out = [];
+    $seen = [];
+
+    foreach ($mw as $item) {
+        // Legacy string middleware: "auth"
+        if (is_string($item)) {
+            $id = trim($item);
+            if ($id === '') continue;
+
+            $key = $id . '|';
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+
+            $out[] = ['id' => $id, 'params' => []];
+            continue;
+        }
+
+        // Structured middleware: ['id'=>'auth','params'=>[...]]
+        if (is_array($item)) {
+            $id = trim((string)($item['id'] ?? ''));
+            if ($id === '') continue;
+
+            $p = $item['params'] ?? [];
+            if (!is_array($p)) $p = [];
+            $p = $normalizeParams($p);
+
+            $key = $id . '|' . http_build_query($p);
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+
+            $out[] = ['id' => $id, 'params' => $p];
+        }
+    }
+
+    return $out;
+}
+
+
+
+/**
+ * Keep parent order, then append new ones (deduped).
+ *
+ * Accepts:
+ *  - legacy string middleware: "auth"
+ *  - structured middleware: ['id'=>'auth','params'=>[...] ]
+ *
+ * @param array<int,mixed> $parent
+ * @param array<int,mixed> $child
+ * @return array<int, array{id:string, params:array<string,string>}>
+ */
+private function mergeMiddleware(array $parent, array $child): array
+{
+    $normalizeParams = static function (array $p): array {
+        $out = [];
+        foreach ($p as $k => $v) {
+            $k = trim((string)$k);
+            if ($k === '') continue;
+
+            if (is_bool($v)) $v = $v ? '1' : '0';
+            elseif ($v === null) $v = '';
+            elseif (is_scalar($v)) $v = (string)$v;
+            else continue;
+
+            $out[$k] = trim((string)$v);
+        }
+        ksort($out);
+        return $out;
+    };
+
+    $out = [];
+    $seen = [];
+
+    foreach ([$parent, $child] as $list) {
+        foreach ($list as $item) {
+            // legacy string
+            if (is_string($item)) {
+                $id = trim($item);
+                if ($id === '') continue;
+
+                $key = $id . '|';
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+
+                $out[] = ['id' => $id, 'params' => []];
                 continue;
             }
-            $seen[$m] = true;
-            $out[] = $m;
-        }
-        return $out;
-    }
 
-    /**
-     * Keep parent order, then append new ones (deduped).
-     *
-     * @param array<int,string> $parent
-     * @param array<int,string> $child
-     * @return array<int,string>
-     */
-    private function mergeMiddleware(array $parent, array $child): array
-    {
-        $out = [];
-        $seen = [];
+            // structured
+            if (is_array($item)) {
+                $id = trim((string)($item['id'] ?? ''));
+                if ($id === '') continue;
 
-        foreach ([$parent, $child] as $list) {
-            foreach ($list as $m) {
-                $m = trim((string)$m);
-                if ($m === '' || isset($seen[$m])) {
-                    continue;
-                }
-                $seen[$m] = true;
-                $out[] = $m;
+                $p = $item['params'] ?? [];
+                if (!is_array($p)) $p = [];
+                $p = $normalizeParams($p);
+
+                $key = $id . '|' . http_build_query($p);
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+
+                $out[] = ['id' => $id, 'params' => $p];
             }
         }
-
-        return $out;
     }
+
+    return $out;
+}
+
 
     /* -------------------------
      * Path utils
@@ -323,6 +450,7 @@ final class RouteCollector
         }
         return $this->normalizePath($a . '/' . ltrim($b, '/'));
     }
+    
 }
 
 /**
@@ -337,36 +465,98 @@ final class RouteDefinition
     ) {}
 
     /**
-     * @param string|string[] $mw
+     * Usage:
+     *  ->middleware('auth')
+     *  ->middleware('auth', ['roles'=>'admin','redirect'=>'/login'])
+     *  ->middleware(['auth','limiter']) // still allowed
      */
-    public function middleware(array|string $mw): self
+    public function middleware(array|string $mw, array $params = []): self
     {
-        if (is_string($mw)) {
-            $mw = [$mw];
-        }
-        if (!is_array($mw)) {
-            $mw = [];
-        }
-
-        $mw = array_values(array_filter(array_map('strval', $mw), static fn($v) => trim((string)$v) !== ''));
-
-        $routes = $this->collector->getRoutes();
+        $routes  = $this->collector->getRoutes();
         $current = $routes[$this->index]['middleware'] ?? [];
+        if (!is_array($current)) {
+            $current = [];
+        }
 
-        // append while preserving order + dedupe
+        $add = [];
+
+        // Case A: middleware('auth', ['roles'=>...])
+        if (is_string($mw)) {
+            $id = trim($mw);
+            if ($id !== '') {
+                $add[] = [
+                    'id'     => $id,
+                    'params' => $params,
+                ];
+            }
+        }
+        // Case B: middleware(['auth','limiter'])
+        else {
+            foreach ($mw as $v) {
+                $id = trim((string)$v);
+                if ($id === '') continue;
+
+                $add[] = [
+                    'id'     => $id,
+                    'params' => [], // per-item params not provided in this form
+                ];
+            }
+        }
+
+        // Normalize + append with de-dup based on (id + normalized params)
+        $normalizeParams = static function (array $p): array {
+            // keep only scalar-ish values; stringify scalars; ignore nested arrays/objects
+            $out = [];
+            foreach ($p as $k => $v) {
+                $k = trim((string)$k);
+                if ($k === '') continue;
+
+                if (is_bool($v)) $v = $v ? '1' : '0';
+                elseif ($v === null) $v = '';
+                elseif (is_scalar($v)) $v = (string)$v;
+                else continue;
+
+                $out[$k] = trim($v);
+            }
+            ksort($out); // canonical order for de-dup key stability
+            return $out;
+        };
+
         $seen = [];
         $merged = [];
 
-        foreach (array_merge($current, $mw) as $m) {
-            $m = trim((string)$m);
-            if ($m === '' || isset($seen[$m])) {
+        foreach (array_merge($current, $add) as $item) {
+            // Allow legacy strings already present
+            if (is_string($item)) {
+                $id = trim($item);
+                if ($id === '') continue;
+
+                $key = $id . '|'; // no params
+                if (isset($seen[$key])) continue;
+                $seen[$key] = true;
+
+                $merged[] = ['id' => $id, 'params' => []];
                 continue;
             }
-            $seen[$m] = true;
-            $merged[] = $m;
+
+            if (!is_array($item)) continue;
+
+            $id = trim((string)($item['id'] ?? ''));
+            if ($id === '') continue;
+
+            $p = $item['params'] ?? [];
+            if (!is_array($p)) $p = [];
+            $p = $normalizeParams($p);
+
+            $key = $id . '|' . http_build_query($p);
+            if (isset($seen[$key])) continue;
+            $seen[$key] = true;
+
+            $merged[] = ['id' => $id, 'params' => $p];
         }
 
         $this->collector->_setMiddleware($this->index, $merged);
         return $this;
     }
+
 }
