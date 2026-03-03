@@ -1,0 +1,12 @@
+<?php
+declare(strict_types=1);
+
+use App\Controllers\HomeController;
+
+/** @var System\Routing\Router $router */
+
+$router->get('/', [HomeController::class, 'index']);
+$router->get('/about', [HomeController::class, 'about']);
+$router->get('/projects', [HomeController::class, 'projects']);
+$router->get('/contact', [HomeController::class, 'contact']);
+$router->post('/contact', [HomeController::class, 'contactSubmit']);

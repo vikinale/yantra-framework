@@ -1,0 +1,17 @@
+<?php
+declare(strict_types=1);
+
+namespace App\Controllers;
+
+use System\Core\BaseController;
+
+final class HomeController extends BaseController
+{
+    public function index(): void
+    {
+        $this->render('pages/home', [
+            'title' => 'Home',
+            'heading' => 'Welcome to Yantra',
+        ]);
+    }
+}

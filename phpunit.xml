@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit 
+    bootstrap="tests/bootstrap.php"
+    colors="true"
+    cacheDirectory=".phpunit.cache"
+    failOnRisky="true"
+    failOnWarning="true"
+>
+    <testsuites>
+        <testsuite name="Yantra Framework Core">
+            <directory>Tests/Testing</directory>
+        </testsuite>
+        <testsuite name="Unit">
+            <directory>Tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>Tests/Feature</directory>
+        </testsuite>
+        <testsuite name="System">
+            <directory>Tests/System</directory>
+        </testsuite>
+    </testsuites>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="DB_DRIVER" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+    </php>
+</phpunit>

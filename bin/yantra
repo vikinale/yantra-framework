@@ -1,0 +1,79 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+use System\Cli\CommandRegistry;
+use System\Cli\CommandAutoDiscovery;
+use System\Cli\ConsoleApplication;
+use System\Cli\Commands\HelpCommand;
+use System\Cli\Commands\ListCommand;
+$root = findProjectRoot(getcwd());
+require $root . '/vendor/autoload.php';
+
+use System\Config;
+
+define('BASEPATH', $root);
+define('APPPATH', BASEPATH . '/App');
+
+// ensure config resolves from the app 
+Config::setAppPath(APPPATH);
+Config::setConfigDir('Config');
+
+$registry = new CommandRegistry();
+
+// built-ins
+$registry->register(new ListCommand($registry));
+$registry->register(new HelpCommand($registry, 'yantra'));
+
+// register framework commands
+CommandAutoDiscovery::registerAll(
+    $registry,
+    BASEPATH . '/vendor/yantra/framework/src/System/Cli/Commands',
+    'System\\Cli\\Commands\\'
+);
+
+// register app commands
+CommandAutoDiscovery::registerAll(
+    $registry,
+    APPPATH . '/Cli/Commands',
+    'App\\Cli\\Commands\\'
+);
+
+$app = new \System\Core\Application('production');
+$app->setCommandRegistry($registry);
+
+// Booting the app triggers plugin loading & booting
+// Plugins can then register their own commands via $app->cli()->register()
+// However, Plugin booting happens in $app->boot().
+// We should check if we need to manually trigger command registration from plugins 
+// OR if plugins register commands in boot().
+// If plugins use $app->cli()->register(), we need $app->cli() to be set.
+$app->boot();
+
+$appConsole = new ConsoleApplication($registry, 'yantra');
+exit($appConsole->run($argv));
+
+function findProjectRoot(string $startDir): string
+{
+    $dir = rtrim($startDir, "/\\");
+    if ($dir === '') $dir = '.';
+
+    // 1) If you are running from app root (typical), this will succeed immediately
+    if (is_file($dir . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php')) {
+        return $dir;
+    }
+
+    // 2) Walk up from CWD to find vendor/autoload.php
+    for ($i = 0; $i < 15; $i++) {
+        $candidate = $dir . DIRECTORY_SEPARATOR . 'vendor' . DIRECTORY_SEPARATOR . 'autoload.php';
+        if (is_file($candidate)) {
+            return $dir;
+        }
+        $parent = dirname($dir);
+        if ($parent === $dir) break;
+        $dir = $parent;
+    }
+
+    // 3) Last resort: fall back to current working directory
+    return rtrim((string)getcwd(), "/\\");
+}

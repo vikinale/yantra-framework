@@ -1,0 +1,12 @@
+<?php
+namespace Database\Seeders;
+
+use PDO;
+
+final class DatabaseSeeder
+{
+    public function run(PDO $pdo): void
+    {
+        (new ContactsSeeder())->run($pdo);
+    }
+}

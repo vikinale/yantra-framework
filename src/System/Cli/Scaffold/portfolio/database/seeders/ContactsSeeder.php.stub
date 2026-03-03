@@ -1,0 +1,18 @@
+<?php
+namespace Database\Seeders;
+
+use PDO;
+use App\Models\ContactModel;
+
+final class ContactsSeeder
+{
+    public function run(PDO $pdo): void
+    {
+        $model = new ContactModel();
+        $model->create([
+            'name' => 'John Doe',
+            'email' => 'john@example.com',
+            'message' => 'Hello from Yantra Scaffold!'
+        ]);
+    }
+}

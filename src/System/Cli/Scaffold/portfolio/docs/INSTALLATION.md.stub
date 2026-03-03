@@ -1,0 +1,26 @@
+# Installation Checklist for Yantra Application
+
+Follow these steps to get your scaffolded application running:
+
+1. **Autoloading**:
+   ```bash
+   composer dump-autoload
+   ```
+
+2. **Environment**:
+   - Copy `config/database.scaffold.example.php` to `Config/db.php`.
+   - Update database credentials.
+
+3. **Migrations**:
+   ```bash
+   php vendor/bin/yantra migrate
+   ```
+
+4. **Seeding**:
+   ```bash
+   php vendor/bin/yantra db:seed
+   ```
+
+5. **Server**:
+   - Point your web root to the `public/` directory (or framework root as per your config).
+   - Ensure the `App/` and `Config/` directories are writeable if needed for logs.

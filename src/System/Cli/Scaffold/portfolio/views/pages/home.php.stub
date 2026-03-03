@@ -1,0 +1,2 @@
+<h1><?= htmlspecialchars($data['heading'] ?? 'Hello') ?></h1>
+<p>Yantra starter application.</p>

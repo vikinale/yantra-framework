@@ -1,0 +1,39 @@
+{
+  "name": "yantra/framework",
+  "version": "0.1.0",
+  "description": "Yantra - core PHP framework (routing, HTTP, hooks, database utilities)",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.0",
+    "ext-pdo": "*",
+    "ext-fileinfo": "*",
+    "ext-iconv": "*",
+    "eftec/bladeone": "^4.19"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "11.5.50",
+    "mockery/mockery": "^1.6"
+  },
+  "autoload": {
+    "psr-4": {
+      "System\\": "src/System/",
+      "App\\": "App/",
+      "Database\\Seeders\\": "database/seeders/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Tests\\": "Tests/",
+      "App\\": "Tests/fixtures/app/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit"
+  },
+  "bin": [
+    "bin/yantra"
+  ],
+  "minimum-stability": "stable",
+  "prefer-stable": true
+}
