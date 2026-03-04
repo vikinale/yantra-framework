@@ -82,6 +82,19 @@ class Database
         return self::$instance->_rollBack();
     }
 
+    /**
+     * Check if a transaction is currently active on the singleton instance.
+     * @throws Exception
+     */
+    public static function inTransaction(): bool
+    {
+        if (self::$instance === null) {
+            return false;
+        }
+        self::$instance->connect();
+        return self::$instance->pdo->inTransaction();
+    }
+
     /* -----------------------
      * Instance-level transaction helpers
      * ----------------------- */
@@ -255,6 +268,24 @@ class Database
     {
         $this->connect();
         return $this->pdo->lastInsertId();
+    }
+
+    /**
+     * Execute raw SQL without prepare (for DDL, SET commands, backup restore).
+     * Returns the number of affected rows.
+     */
+    public function exec(string $sql): int|false
+    {
+        $this->connect();
+        return $this->pdo->exec($sql);
+    }
+
+    /**
+     * Static convenience for lastInsertId().
+     */
+    public static function getLastInsertId(): string|false
+    {
+        return self::getInstance()->lastInsertId();
     }
 
     /**
