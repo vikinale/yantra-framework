@@ -4,12 +4,13 @@ declare(strict_types=1);
 namespace System\Database\Migrations;
 
 use PDO;
+use System\Database\Database;
 
 final class MigrationRepository
 {
     private string $tableName;
 
-    public function __construct(private PDO $pdo, ?string $tableName = null)
+    public function __construct(private Database $db, ?string $tableName = null)
     {
         $table = $tableName ?? 'yt_migrations';
 
@@ -24,10 +25,10 @@ final class MigrationRepository
     public function ensureTable(): void
     {
         $table = $this->tableName;
-        $driver = strtolower((string)$this->pdo->getAttribute(\PDO::ATTR_DRIVER_NAME));
+        $driver = strtolower((string)$this->db->getAttribute(\PDO::ATTR_DRIVER_NAME));
 
         if ($driver === 'sqlite') {
-            $this->pdo->exec("
+            $this->db->exec("
                 CREATE TABLE IF NOT EXISTS {$table} (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     migration TEXT NOT NULL UNIQUE,
@@ -39,7 +40,7 @@ final class MigrationRepository
         }
 
         // mysql/mariadb
-        $this->pdo->exec("
+        $this->db->exec("
             CREATE TABLE IF NOT EXISTS {$table} (
                 id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
                 migration VARCHAR(255) NOT NULL UNIQUE,
@@ -53,30 +54,30 @@ final class MigrationRepository
     /** @return array<string,true> */
     public function ranMap(): array
     {
-        $stmt = $this->pdo->query("SELECT migration FROM {$this->tableName}");
-        $rows = $stmt ? $stmt->fetchAll(PDO::FETCH_COLUMN) : [];
+        $stmt = $this->db->execute("SELECT migration FROM {$this->tableName}");
+        $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
         if (!is_array($rows)) $rows = [];
         return array_fill_keys($rows, true);
     }
 
     public function nextBatch(): int
     {
-        $stmt = $this->pdo->query("SELECT COALESCE(MAX(batch), 0) + 1 FROM {$this->tableName}");
-        $val = $stmt ? $stmt->fetchColumn() : 1;
+        $stmt = $this->db->execute("SELECT COALESCE(MAX(batch), 0) + 1 FROM {$this->tableName}");
+        $val = $stmt->fetchColumn();
         return (int)$val;
     }
 
     public function lastBatch(): int
     {
-        $stmt = $this->pdo->query("SELECT COALESCE(MAX(batch), 0) FROM {$this->tableName}");
-        $val = $stmt ? $stmt->fetchColumn() : 0;
+        $stmt = $this->db->execute("SELECT COALESCE(MAX(batch), 0) FROM {$this->tableName}");
+        $val = $stmt->fetchColumn();
         return (int)$val;
     }
 
     /** @return string[] */
     public function migrationsInBatch(int $batch): array
     {
-        $stmt = $this->pdo->prepare("SELECT migration FROM {$this->tableName} WHERE batch = ? ORDER BY id DESC");
+        $stmt = $this->db->prepare("SELECT migration FROM {$this->tableName} WHERE batch = ? ORDER BY id DESC");
         $stmt->execute([$batch]);
         $rows = $stmt->fetchAll(PDO::FETCH_COLUMN);
         return is_array($rows) ? $rows : [];
@@ -84,13 +85,13 @@ final class MigrationRepository
 
     public function markRan(string $migration, int $batch): void
     {
-        $stmt = $this->pdo->prepare("INSERT INTO {$this->tableName} (migration, batch) VALUES (?, ?)");
+        $stmt = $this->db->prepare("INSERT INTO {$this->tableName} (migration, batch) VALUES (?, ?)");
         $stmt->execute([$migration, $batch]);
     }
 
     public function deleteMark(string $migration): void
     {
-        $stmt = $this->pdo->prepare("DELETE FROM {$this->tableName} WHERE migration = ?");
+        $stmt = $this->db->prepare("DELETE FROM {$this->tableName} WHERE migration = ?");
         $stmt->execute([$migration]);
     }
 }

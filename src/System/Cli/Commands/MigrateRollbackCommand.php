@@ -40,7 +40,7 @@ final class MigrateRollbackCommand extends AbstractCommand
         $batch    = $batchStr !== null ? (int) $batchStr : null;
 
         try {
-            $migrator = new Migrator(Database::pdo(), (string) $path);
+            $migrator = new Migrator(Database::getInstance(), (string) $path);
             $rolled   = $migrator->rollback($batch);
 
             if ($rolled === []) {

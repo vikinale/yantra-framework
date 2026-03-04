@@ -38,7 +38,7 @@ final class DbSeedCommand extends AbstractCommand
             ?? ($cfg['database_seeder'] ?? 'Database\\Seeders\\DatabaseSeeder');
 
         try {
-            $runner = new SeederRunner(Database::pdo());
+            $runner = new SeederRunner(Database::getInstance());
             $runner->run((string) $seederClass);
 
             $out->writeln(Style::ok("Seeding complete: {$seederClass}"));

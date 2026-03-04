@@ -37,7 +37,7 @@ final class MigrateCommand extends AbstractCommand
 
         try {
             $out->writeln("Using migrations_path: " . $path);
-            $migrator = new Migrator(Database::pdo(), (string) $path);
+            $migrator = new Migrator(Database::getInstance(), (string) $path);
             $result   = $migrator->migrate();
 
             if ($result->ranCount === 0) {

@@ -194,7 +194,7 @@ PHP;
     {
         // Keep generated tests self-contained and PHPUnit 11 compatible.
         // - sqlite: uses in-memory PDO
-        // - mysql:  uses framework Database::pdo() (requires app bootstrap loads config)
+        // - mysql:  uses framework Database::getInstance() (requires app bootstrap loads config)
         // - migrate: runs migrations from tests/fixtures/migrations into sqlite memory
         return match ($dbMode) {
             'sqlite' => <<<PHP
@@ -213,11 +213,11 @@ PHP;
 PHP,
             'mysql' => <<<PHP
 
-        // DB: MySQL via framework Database::pdo() (uses app config)
+        // DB: MySQL via framework Database::getInstance() (uses app config)
         // Ensure your tests bootstrap defines BASEPATH and initializes System\\Config app path.
-        \$pdo = \\System\\Database\\Database::pdo();
+        \$db = \\System\\Database\\Database::getInstance();
 
-        self::assertSame('mysql', (string)\$pdo->getAttribute(\\PDO::ATTR_DRIVER_NAME));
+        self::assertSame('mysql', (string)\$db->getAttribute(\\PDO::ATTR_DRIVER_NAME));
 
 PHP,
             'migrate' => <<<PHP

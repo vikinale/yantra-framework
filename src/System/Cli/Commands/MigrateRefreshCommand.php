@@ -53,8 +53,8 @@ final class MigrateRefreshCommand extends AbstractCommand
         $noSeed = $this->hasFlag($in, '--no-seed');
 
         try {
-            $pdo = Database::pdo();
-            $migrator = new Migrator($pdo, (string) $path);
+            $db = Database::getInstance();
+            $migrator = new Migrator($db, (string) $path);
 
             $out->writeln(Style::warn("Refreshing database migrations (destructive)."));
             $out->writeln("Path: {$path}");
@@ -81,7 +81,7 @@ final class MigrateRefreshCommand extends AbstractCommand
             // Seed (default yes)
             if (!$noSeed) {
                 $seederClass = $cfg['database_seeder'] ?? 'Database\\Seeders\\DatabaseSeeder';
-                (new SeederRunner($pdo))->run((string) $seederClass);
+                (new SeederRunner($db))->run((string) $seederClass);
                 $out->writeln(Style::ok("Seed complete: {$seederClass}"));
             } else {
                 $out->writeln(Style::warn("Seed skipped (--no-seed)."));

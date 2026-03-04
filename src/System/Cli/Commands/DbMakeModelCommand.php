@@ -36,19 +36,19 @@ final class DbMakeModelCommand extends AbstractCommand
         }
 
         try {
-            $pdo = Database::pdo();
-            $driver = $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME);
-            
+            $db = Database::getInstance();
+            $driver = $db->getAttribute(\PDO::ATTR_DRIVER_NAME);
+
             // 1. Check if table exists and get columns
             $columns = [];
             if ($driver === 'mysql') {
-                $stmt = $pdo->query("DESCRIBE `{$tableName}`");
+                $stmt = $db->execute("DESCRIBE `{$tableName}`");
                 $rawColumns = $stmt->fetchAll();
                 foreach ($rawColumns as $col) {
                     $columns[] = $col['Field'];
                 }
             } elseif ($driver === 'sqlite') {
-                $stmt = $pdo->query("PRAGMA table_info(`{$tableName}`)");
+                $stmt = $db->execute("PRAGMA table_info(`{$tableName}`)");
                 $rawColumns = $stmt->fetchAll();
                 foreach ($rawColumns as $col) {
                     $columns[] = $col['name'];

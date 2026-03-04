@@ -3,12 +3,12 @@ declare(strict_types=1);
 
 namespace System\Database\Seeders;
 
-use PDO;
 use RuntimeException;
+use System\Database\Database;
 
 final class SeederRunner
 {
-    public function __construct(private PDO $pdo)
+    public function __construct(private Database $db)
     {
     }
 
@@ -21,9 +21,9 @@ final class SeederRunner
         $seeder = new $databaseSeederFqcn();
 
         if (!method_exists($seeder, 'run')) {
-            throw new RuntimeException("Seeder must have run(PDO \$pdo): void method: {$databaseSeederFqcn}");
+            throw new RuntimeException("Seeder must have run(Database \$db): void method: {$databaseSeederFqcn}");
         }
 
-        $seeder->run($this->pdo);
+        $seeder->run($this->db);
     }
 }

@@ -123,9 +123,9 @@ PHP;
 PHP,
             'mysql' => <<<PHP
 
-        // DB: MySQL via framework Database::pdo() (uses app config)
-        \$pdo = \\System\\Database\\Database::pdo();
-        self::assertSame('mysql', (string)\$pdo->getAttribute(\\PDO::ATTR_DRIVER_NAME));
+        // DB: MySQL via framework Database::getInstance() (uses app config)
+        \$db = \\System\\Database\\Database::getInstance();
+        self::assertSame('mysql', (string)\$db->getAttribute(\\PDO::ATTR_DRIVER_NAME));
 
 PHP,
             'migrate' => <<<PHP

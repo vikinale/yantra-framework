@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace System\Database\Migrations;
 
-use PDO;
 use RuntimeException;
 use System\Contracts\MigrationInterface;
+use System\Database\Database;
 
 final class Migrator
 {
@@ -16,14 +16,14 @@ final class Migrator
     private array $paths = [];
 
     public function __construct(
-        private PDO $pdo,
+        private Database $db,
         array|string $paths
     ) {
         $this->addPaths((array)$paths);
-        $this->repo = new MigrationRepository($this->pdo);
-        $this->lock = new MigrationLock($this->pdo);
+        $this->repo = new MigrationRepository($this->db);
+        $this->lock = new MigrationLock($this->db);
     }
-    
+
     public function addPath(string $path): void
     {
         $path = rtrim($path, '/\\');
@@ -59,19 +59,19 @@ final class Migrator
 
                 $migration = $this->loadMigration($file);
 
-                if (!$this->pdo->inTransaction()) {
-                    $this->pdo->beginTransaction();
+                if (!$this->db->_inTransaction()) {
+                    $this->db->_beginTransaction();
                 }
                 try {
-                    $migration->up($this->pdo);
+                    $migration->up($this->db);
                     $this->repo->markRan($name, $batch);
-                    if ($this->pdo->inTransaction()) {
-                        $this->pdo->commit();
+                    if ($this->db->_inTransaction()) {
+                        $this->db->_commit();
                     }
                     $ran[] = $name;
                 } catch (\Throwable $e) {
-                    if ($this->pdo->inTransaction()) {
-                        $this->pdo->rollBack();
+                    if ($this->db->_inTransaction()) {
+                        $this->db->_rollBack();
                     }
                     throw new RuntimeException("Migration failed: {$name}: {$e->getMessage()}", 0, $e);
                 }
@@ -109,19 +109,19 @@ final class Migrator
 
                 $migration = $this->loadMigration($file);
 
-                if (!$this->pdo->inTransaction()) {
-                    $this->pdo->beginTransaction();
+                if (!$this->db->_inTransaction()) {
+                    $this->db->_beginTransaction();
                 }
                 try {
-                    $migration->down($this->pdo);
+                    $migration->down($this->db);
                     $this->repo->deleteMark($migrationName);
-                    if ($this->pdo->inTransaction()) {
-                        $this->pdo->commit();
+                    if ($this->db->_inTransaction()) {
+                        $this->db->_commit();
                     }
                     $rolled[] = $migrationName;
                 } catch (\Throwable $e) {
-                    if ($this->pdo->inTransaction()) {
-                        $this->pdo->rollBack();
+                    if ($this->db->_inTransaction()) {
+                        $this->db->_rollBack();
                     }
                     throw new RuntimeException("Rollback failed: {$migrationName}: {$e->getMessage()}", 0, $e);
                 }

@@ -36,7 +36,7 @@ final class MigrateStatusCommand extends AbstractCommand
             ?? ($cfg['migrations_path'] ?? (defined('BASEPATH') ? BASEPATH . '/database/migrations' : 'database/migrations'));
 
         try {
-            $migrator = new Migrator(Database::pdo(), (string) $path);
+            $migrator = new Migrator(Database::getInstance(), (string) $path);
             $rows     = $migrator->status();
 
             if ($rows === []) {

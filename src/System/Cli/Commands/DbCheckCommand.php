@@ -29,7 +29,7 @@ final class DbCheckCommand extends AbstractCommand
     public function run(Input $in, Output $out): int
     {
         try {
-            $pdo = Database::pdo();
+            $db = Database::getInstance();
         } catch (\Throwable $e) {
             $out->error(Style::err("DB connection failed: " . $e->getMessage()));
             return 2;
@@ -37,14 +37,14 @@ final class DbCheckCommand extends AbstractCommand
 
         try {
             // Connectivity check
-            $pdo->query("SELECT 1")->fetchColumn();
+            Database::query("SELECT 1")->fetchColumn();
 
-            $driver  = (string) $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME);
-            $server  = (string) $pdo->getAttribute(\PDO::ATTR_SERVER_VERSION);
+            $driver  = (string) $db->getAttribute(\PDO::ATTR_DRIVER_NAME);
+            $server  = (string) $db->getAttribute(\PDO::ATTR_SERVER_VERSION);
 
             $dbName = null;
             try {
-                $dbName = $pdo->query("SELECT DATABASE()")->fetchColumn();
+                $dbName = Database::query("SELECT DATABASE()")->fetchColumn();
             } catch (\Throwable $e) {
                 // Some drivers may not support it; ignore.
             }
@@ -53,8 +53,8 @@ final class DbCheckCommand extends AbstractCommand
             $charset = null;
             $collation = null;
             try {
-                $charset = $pdo->query("SELECT @@character_set_database")->fetchColumn();
-                $collation = $pdo->query("SELECT @@collation_database")->fetchColumn();
+                $charset = Database::query("SELECT @@character_set_database")->fetchColumn();
+                $collation = Database::query("SELECT @@collation_database")->fetchColumn();
             } catch (\Throwable $e) {
                 // ignore for non-mysql drivers
             }
@@ -62,7 +62,7 @@ final class DbCheckCommand extends AbstractCommand
             // Check if migrations table exists (read-only)
             $hasMigrationsTable = false;
             try {
-                $stmt = $pdo->query("SHOW TABLES LIKE 'yt_migrations'");
+                $stmt = Database::query("SHOW TABLES LIKE 'yt_migrations'");
                 $hasMigrationsTable = (bool) ($stmt && $stmt->fetchColumn());
             } catch (\Throwable $e) {
                 // If non-mysql, skip this check

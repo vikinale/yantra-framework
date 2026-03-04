@@ -3,19 +3,19 @@ declare(strict_types=1);
 
 namespace System\Database\Migrations;
 
-use PDO;
 use RuntimeException;
+use System\Database\Database;
 
 final class MigrationLock
 {
-    public function __construct(private PDO $pdo)
+    public function __construct(private Database $db)
     {
     }
 
     public function acquire(string $name = 'yantra_migrations', int $timeoutSeconds = 10): void
     {
         try {
-            $stmt = $this->pdo->prepare("SELECT GET_LOCK(?, ?) AS l");
+            $stmt = $this->db->prepare("SELECT GET_LOCK(?, ?) AS l");
             $stmt->execute([$name, $timeoutSeconds]);
             $val = $stmt->fetchColumn();
 
@@ -31,7 +31,7 @@ final class MigrationLock
     public function release(string $name = 'yantra_migrations'): void
     {
         try {
-            $stmt = $this->pdo->prepare("SELECT RELEASE_LOCK(?)");
+            $stmt = $this->db->prepare("SELECT RELEASE_LOCK(?)");
             $stmt->execute([$name]);
         } catch (\Throwable $e) {
             // ignore

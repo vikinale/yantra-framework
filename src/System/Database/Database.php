@@ -289,6 +289,24 @@ class Database
     }
 
     /**
+     * Check if a transaction is active on this instance.
+     */
+    public function _inTransaction(): bool
+    {
+        $this->connect();
+        return $this->pdo->inTransaction();
+    }
+
+    /**
+     * Proxy for PDO::getAttribute (driver name, server version, etc.).
+     */
+    public function getAttribute(int $attribute): mixed
+    {
+        $this->connect();
+        return $this->pdo->getAttribute($attribute);
+    }
+
+    /**
      * Quote a value using PDO
      *
      * @param string $string
