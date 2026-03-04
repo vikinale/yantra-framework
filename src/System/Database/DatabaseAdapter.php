@@ -25,12 +25,7 @@ final class DatabaseAdapter implements DatabaseInterface
     public function __construct(private Database $db)
     {
     }
-
-    public function getPDO(): PDO
-    {
-        return $this->db->getPDO();
-    }
-
+ 
     public function query(string $sql, array $params = []): PDOStatement
     {
         return $this->db->execute($sql, $params);
@@ -66,12 +61,7 @@ final class DatabaseAdapter implements DatabaseInterface
     {
         return $this->db->_rollBack();
     }
-
-    public function inTransaction(): bool
-    {
-        $pdo = $this->db->getPDO();
-        return $pdo->inTransaction();
-    }
+ 
 
     public function lastInsertId(): string|false
     {

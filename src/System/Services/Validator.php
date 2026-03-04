@@ -465,10 +465,8 @@ class Validator
         if (!$this->isSafeIdentifier($table) || !$this->isSafeIdentifier($col)) return "Invalid lookup";
 
         try {
-            $pdo = Database::getInstance()->getPDO();
             $sql = "SELECT COUNT(*) FROM `{$table}` WHERE `{$col}` = :val";
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute([':val' => $value]);
+            $stmt = Database::query($sql, [':val' => $value]);
             return ((int)$stmt->fetchColumn() > 0) ? true : "Does not exist";
         } catch (\Throwable $e) {
             return "Database lookup failed";
@@ -487,8 +485,6 @@ class Validator
         if (!$this->isSafeIdentifier($table) || !$this->isSafeIdentifier($col)) return "Invalid lookup";
 
         try {
-            $pdo = Database::getInstance()->getPDO();
-
             $sql = "SELECT COUNT(*) FROM `{$table}` WHERE `{$col}` = :val";
             $p   = [':val' => $value];
 
@@ -508,8 +504,7 @@ class Validator
                 }
             }
 
-            $stmt = $pdo->prepare($sql);
-            $stmt->execute($p);
+            $stmt = Database::query($sql, $p);
 
             return ((int)$stmt->fetchColumn() === 0) ? true : "Already taken";
         } catch (\Throwable $e) {

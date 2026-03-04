@@ -31,7 +31,7 @@ class DbSandbox
         
         try {
             // Check if already in transaction
-            if ($db->getPDO()->inTransaction()) {
+            if ($db->inTransaction()) {
                 return;
             }
             
@@ -52,12 +52,5 @@ class DbSandbox
             }
             $this->inTransaction = false;
         }
-    }
-
-    public function pdo(): \PDO
-    {
-        $db = $this->getDb();
-        $db->connect();
-        return $db->getPDO();
-    }
+    } 
 }

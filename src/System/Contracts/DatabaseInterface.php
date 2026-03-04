@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace System\Contracts;
 
-use PDO;
 use PDOStatement;
 
 /**
@@ -15,11 +14,6 @@ use PDOStatement;
  */
 interface DatabaseInterface
 {
-    /**
-     * Return the underlying PDO instance (connects lazily if needed).
-     */
-    public function getPDO(): PDO;
-
     /**
      * Execute SQL with bindings and return the statement.
      *
