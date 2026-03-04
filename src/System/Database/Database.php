@@ -124,24 +124,7 @@ class Database
         }
         return self::$instance;
     }
-
-    public static function pdo() : PDO {
-        $db = self::getInstance();
-        $db->connect();
-        return $db->getPDO();
-    }
-
-    /**
-     * Return raw PDO instance. Connects lazily if not yet connected.
-     *
-     * @throws Exception if connection fails
-     */
-    public function getPDO(): PDO
-    {
-        $this->connect();
-        return $this->pdo;
-    }
-
+    
     /**
      * Return a DatabaseAdapter that implements DatabaseInterface.
      *
