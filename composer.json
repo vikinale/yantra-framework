@@ -8,8 +8,7 @@
     "php": ">=8.0",
     "ext-pdo": "*",
     "ext-fileinfo": "*",
-    "ext-iconv": "*",
-    "eftec/bladeone": "^4.19"
+    "ext-iconv": "*"
   },
   "require-dev": {
     "phpunit/phpunit": "11.5.50",

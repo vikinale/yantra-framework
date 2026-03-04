@@ -116,20 +116,14 @@ final class ViewRenderer
      */
     public function renderFile(string $file, array $data = [], ?string $layout = null): string
     {
-        // If file ends in .blade.php, we might want to verify if it's in a registered path
-        // because BladeOne usually requires views to be in registered paths to compile correctly (for relative includes).
-        // However, for pure absolute path rendering, native PHP evaluate is safest unless we want to hack BladeOne.
-        // Let's stick to native evaluate for absolute path unless we detect blade extension AND it's inside a view path?
+
         
         $file = rtrim($file);
         if ($file === '' || !is_file($file) || !is_readable($file)) {
             throw new RuntimeException("View file not found/readable: {$file}");
         }
         
-        // Simple check: if explicit file requested is .blade.php, try to render it?
-        // But BladeOne needs "view name" not "file path".
-        // So for renderFile, we stay with PHP native behavior for now to avoid complexity. 
-        // Or strictly support .php only for renderFile.
+
         
         $content = $this->evaluate($file, $data);
 
