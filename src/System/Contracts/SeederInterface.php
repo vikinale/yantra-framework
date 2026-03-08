@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace System\Contracts;
 
-use PDO;
+use System\Database\Database;
 
 interface SeederInterface
 {
-    public function run(PDO $pdo): void;
+    public function run(Database $pdo): void;
 }
