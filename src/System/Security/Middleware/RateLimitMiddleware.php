@@ -66,7 +66,7 @@ final class RateLimitMiddleware
     /**
      * Invokable form (DI-friendly).
      */
-    public function __invoke(Request $request, Response $response, callable $next): Response
+    public function __invoke(Request $request, Response $response, callable $next, array $params = []): Response
     {
         $now = time();
 

@@ -126,7 +126,7 @@ final class JwtAuthMiddleware
     private function getHeader(Request $req, string $name): string
     {
         if (method_exists($req, 'header')) {
-            $v = $req->getHeader($name);
+            $v = $req->header($name);
             return is_string($v) ? $v : '';
         }
         $key = 'HTTP_' . strtoupper(str_replace('-', '_', $name));

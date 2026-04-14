@@ -61,6 +61,48 @@ return [
         return new \System\Core\Logger($logFile);
     },
 
+    // Security middleware requiring explicit configuration
+    \System\Security\Middleware\JwtAuthMiddleware::class => function () {
+        $publicKeyPem = (string)(Config::get('security.jwt.public_key_pem') ?? '');
+
+        if (trim($publicKeyPem) === '') {
+            $keyPath = (string)(Config::get('security.jwt.public_key_path') ?? '');
+            if ($keyPath === '') {
+                $fromEnvPath = getenv('JWT_PUBLIC_KEY_PATH');
+                $keyPath = $fromEnvPath !== false ? (string)$fromEnvPath : '';
+            }
+
+            if ($keyPath !== '' && is_file($keyPath) && is_readable($keyPath)) {
+                $loaded = file_get_contents($keyPath);
+                if (is_string($loaded)) {
+                    $publicKeyPem = $loaded;
+                }
+            }
+        }
+
+        if (trim($publicKeyPem) === '') {
+            $fromEnvPem = getenv('JWT_PUBLIC_KEY_PEM');
+            if ($fromEnvPem !== false) {
+                $publicKeyPem = (string)$fromEnvPem;
+            }
+        }
+
+        $publicKeyPem = trim($publicKeyPem);
+        if ($publicKeyPem === '') {
+            throw new \RuntimeException(
+                'JWT middleware requires a public key. Set security.jwt.public_key_pem, security.jwt.public_key_path, JWT_PUBLIC_KEY_PEM, or JWT_PUBLIC_KEY_PATH.'
+            );
+        }
+
+        $requiredRoles = Config::get('security.jwt.required_roles') ?? [];
+        if (!is_array($requiredRoles)) {
+            $requiredRoles = [];
+        }
+
+        $leeway = (int)(Config::get('security.jwt.leeway_seconds') ?? 30);
+        return new \System\Security\Middleware\JwtAuthMiddleware($publicKeyPem, $requiredRoles, max(0, $leeway));
+    },
+
     // Middleware Resolver
     'middleware.resolver' => function (ContainerInterface $c) {
         $map = [
@@ -78,12 +120,20 @@ return [
             // 1. Mapped Middleware
             if (isset($map[$id])) {
                 $class = $map[$id];
-                return $c->has($class) ? $c->get($class) : new $class();
+                $instance = $c->get($class);
+                if (is_callable($instance)) {
+                    return $instance;
+                }
+                throw new \RuntimeException("Middleware is not callable: {$class}");
             }
 
             // 2. Class Name (FQCN)
-            if (class_exists($id) && is_callable(new $id)) {
-                 return $c->has($id) ? $c->get($id) : new $id();
+            if (class_exists($id)) {
+                $instance = $c->get($id);
+                if (is_callable($instance)) {
+                    return $instance;
+                }
+                throw new \RuntimeException("Middleware class is not callable: {$id}");
             }
 
             throw new \RuntimeException("Middleware not found: {$id}");

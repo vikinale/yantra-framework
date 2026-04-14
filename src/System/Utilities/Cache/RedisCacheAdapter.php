@@ -41,7 +41,8 @@ class RedisCacheAdapter implements CacheAdapterInterface
         $p = $this->pkey($key);
         $v = $this->client->get($p);
         if ($v === false || $v === null) return $default;
-        return @unserialize($v);
+        $decoded = $this->safeUnserialize((string)$v);
+        return $decoded === null ? $default : $decoded;
     }
 
     public function has(string $key): bool
@@ -124,5 +125,14 @@ class RedisCacheAdapter implements CacheAdapterInterface
         }
         $this->client->del($setKey);
         return $ok;
+    }
+
+    private function safeUnserialize(string $value): mixed
+    {
+        try {
+            return unserialize($value, ['allowed_classes' => false]);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 }

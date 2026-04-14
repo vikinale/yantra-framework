@@ -393,14 +393,108 @@ class Request
 
     public function trustedProxyIp(): ?string
     {
-        $forwarded = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? null;
-        if (is_string($forwarded) && $forwarded !== '') {
+        $remoteAddr = $_SERVER['REMOTE_ADDR'] ?? null;
+        if (!$this->isTrustedProxy($remoteAddr)) {
+            return is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : null;
+        }
+
+        $forwarded = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+        if (is_string($forwarded) && trim($forwarded) !== '') {
             $ips = array_map('trim', explode(',', $forwarded));
-            $ip = $ips[0] ?? null;
-            if ($ip !== null && filter_var($ip, FILTER_VALIDATE_IP)) {
-                return $ip;
+            foreach ($ips as $ip) {
+                if ($ip !== '' && filter_var($ip, FILTER_VALIDATE_IP)) {
+                    return $ip;
+                }
             }
         }
-        return $_SERVER['REMOTE_ADDR'] ?? null;
+
+        return is_string($remoteAddr) && $remoteAddr !== '' ? $remoteAddr : null;
+    }
+
+    private function isTrustedProxy(?string $remoteAddr): bool
+    {
+        if (!is_string($remoteAddr) || $remoteAddr === '') {
+            return false;
+        }
+
+        $trusted = $this->trustedProxyRanges();
+        if ($trusted === []) {
+            return false;
+        }
+
+        foreach ($trusted as $range) {
+            if ($this->ipMatchesRange($remoteAddr, $range)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function trustedProxyRanges(): array
+    {
+        $raw = getenv('TRUSTED_PROXIES');
+        if ($raw === false || trim((string)$raw) === '') {
+            return [];
+        }
+
+        $items = preg_split('/[,\s]+/', (string)$raw) ?: [];
+        $out = [];
+        foreach ($items as $item) {
+            $item = trim($item);
+            if ($item !== '') {
+                $out[] = $item;
+            }
+        }
+        return $out;
+    }
+
+    private function ipMatchesRange(string $ip, string $range): bool
+    {
+        if ($range === $ip) {
+            return true;
+        }
+
+        if (!str_contains($range, '/')) {
+            return false;
+        }
+
+        [$subnet, $bitsRaw] = explode('/', $range, 2);
+        $bits = (int)$bitsRaw;
+
+        $ipBin = @inet_pton($ip);
+        $subnetBin = @inet_pton($subnet);
+        if ($ipBin === false || $subnetBin === false) {
+            return false;
+        }
+
+        $size = strlen($ipBin) * 8;
+        if (strlen($ipBin) !== strlen($subnetBin) || $bits < 0 || $bits > $size) {
+            return false;
+        }
+
+        if ($bits === 0) {
+            return true;
+        }
+
+        $fullBytes = intdiv($bits, 8);
+        $remainingBits = $bits % 8;
+
+        if ($fullBytes > 0 && substr($ipBin, 0, $fullBytes) !== substr($subnetBin, 0, $fullBytes)) {
+            return false;
+        }
+
+        if ($remainingBits === 0) {
+            return true;
+        }
+
+        $mask = (~(0xFF >> $remainingBits)) & 0xFF;
+        $ipByte = ord($ipBin[$fullBytes]);
+        $subnetByte = ord($subnetBin[$fullBytes]);
+
+        return (($ipByte & $mask) === ($subnetByte & $mask));
     }
 }

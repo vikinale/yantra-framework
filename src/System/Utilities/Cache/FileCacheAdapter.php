@@ -59,7 +59,7 @@ class FileCacheAdapter implements CacheAdapterInterface
         $contents = stream_get_contents($fp);
         flock($fp, LOCK_UN);
         fclose($fp);
-        $payload = @unserialize($contents);
+        $payload = $this->safeUnserialize($contents);
         if (!is_array($payload) || !array_key_exists('value', $payload)) {
             @unlink($path);
             return $default;
@@ -84,7 +84,7 @@ class FileCacheAdapter implements CacheAdapterInterface
         $contents = stream_get_contents($fp);
         flock($fp, LOCK_UN);
         fclose($fp);
-        $payload = @unserialize($contents);
+        $payload = $this->safeUnserialize($contents);
         if (!is_array($payload) || !array_key_exists('value', $payload)) {
             @unlink($path);
             return false;
@@ -194,5 +194,14 @@ class FileCacheAdapter implements CacheAdapterInterface
         }
         @unlink($tagFile);
         return $ok;
+    }
+
+    private function safeUnserialize(string $contents): mixed
+    {
+        try {
+            return unserialize($contents, ['allowed_classes' => false]);
+        } catch (\Throwable $e) {
+            return null;
+        }
     }
 }

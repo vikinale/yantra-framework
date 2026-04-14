@@ -30,7 +30,7 @@ final class RedisSessionAdapter implements SessionAdapterInterface
         try {
             $raw = $this->redis->get($this->prefix . $sid);
             if ($raw) {
-                $data = @unserialize($raw);
+                $data = $this->safeUnserialize((string)$raw);
                 if (is_array($data)) {
                     $_SESSION = $data;
                 }
@@ -113,6 +113,15 @@ final class RedisSessionAdapter implements SessionAdapterInterface
             $this->redis->setex($this->prefix . $sid, $this->ttl, serialize($_SESSION));
         } catch (\Throwable $e) {
             // ignore
+        }
+    }
+
+    private function safeUnserialize(string $value): mixed
+    {
+        try {
+            return unserialize($value, ['allowed_classes' => false]);
+        } catch (\Throwable $e) {
+            return null;
         }
     }
 }

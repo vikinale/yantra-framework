@@ -41,6 +41,11 @@ final class Cors
         $credentials = (bool)($policy['credentials'] ?? false);
         $maxAge      = (int)($policy['max_age'] ?? 600);
 
+        // Fail closed: wildcard origins cannot be combined with credentials.
+        if ($credentials && self::hasWildcardOrigin($origins)) {
+            return false;
+        }
+
         $allowOrigin = self::resolveAllowOrigin($origin, $origins);
         if ($allowOrigin === null) {
             // Disallowed origin: do not set any CORS headers
@@ -97,6 +102,16 @@ final class Cors
         }
 
         return null;
+    }
+
+    private static function hasWildcardOrigin(array $origins): bool
+    {
+        foreach ($origins as $origin) {
+            if (is_string($origin) && trim($origin) === '*') {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static function normalizeList(array $items): array
