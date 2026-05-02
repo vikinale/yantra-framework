@@ -61,7 +61,11 @@ final class DatabaseAdapter implements DatabaseInterface
     {
         return $this->db->_rollBack();
     }
- 
+
+    public function inTransaction(): bool
+    {
+        return $this->db->_inTransaction();
+    }
 
     public function lastInsertId(): string|false
     {
