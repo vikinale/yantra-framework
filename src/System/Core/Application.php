@@ -33,20 +33,36 @@ final class Application
 
     public function __construct(?string $environment)
     {
-        // Load .env if available
+        // Load .env if available.
+        //
+        // A present-but-unparseable .env MUST fail loudly: silently falling
+        // back to config defaults once caused migrate/seed to run against the
+        // wrong database. We strip whole-line `#`/`;` comments first (dotenv
+        // conventionally uses `#`, which parse_ini_* treats as data), then
+        // parse; if the file exists but still won't parse, we throw.
         $rootParams = self::getBasePath();
         $envFile = $rootParams . '/.env';
         if (is_file($envFile)) {
-            $parsedOk = @parse_ini_file($envFile, false, INI_SCANNER_RAW);
-            if (is_array($parsedOk)) {
-                foreach ($parsedOk as $key => $value) {
-                    $key = trim((string)$key);
-                    $value = trim((string)$value);
-                    if ($key !== '') {
-                        putenv(sprintf('%s=%s', $key, $value));
-                        $_ENV[$key] = $value;
-                        $_SERVER[$key] = $value;
-                    }
+            $raw = (string) file_get_contents($envFile);
+            $stripped = preg_replace('/^[ \t]*[#;].*$/m', '', $raw);
+            $parsedOk = @parse_ini_string((string) $stripped, false, INI_SCANNER_RAW);
+            if (!is_array($parsedOk)) {
+                $err = error_get_last()['message'] ?? 'unknown parse error';
+                throw new \RuntimeException(sprintf(
+                    'Failed to parse %s (%s). Refusing to boot with default '
+                    . 'config — fix the .env (use `;` or whole-line `#` for '
+                    . 'comments; quote values containing ( ) { } | & ! ~).',
+                    $envFile,
+                    $err
+                ));
+            }
+            foreach ($parsedOk as $key => $value) {
+                $key = trim((string)$key);
+                $value = trim((string)$value);
+                if ($key !== '') {
+                    putenv(sprintf('%s=%s', $key, $value));
+                    $_ENV[$key] = $value;
+                    $_SERVER[$key] = $value;
                 }
             }
         }
