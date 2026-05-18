@@ -238,9 +238,20 @@ final class Application
         // Database: only initialize if the app has configured it.
         // Yantra does NOT force a DB connection — apps opt in via config/dependencies.php.
         try {
-            if ($this->container->has(\System\Database\Database::class)) {
+            // The PRIMARY connection is built from config directly (NOT the
+            // container's Database::class binding) so an app may rebind
+            // Database::class to a request-scoped proxy without breaking the
+            // org/legacy connection. Single-DB apps are unaffected: this is
+            // simply their one connection, also exposed as 'org'.
+            $dbCfg = \System\Config::get('db');
+            if (is_array($dbCfg) && $dbCfg !== []) {
+                $primary = new \System\Database\Database($dbCfg);
+                \System\Database\ConnectionResolver::set($primary);
+                \System\Database\ConnectionManager::register('org', static fn() => $primary);
+            } elseif ($this->container->has(\System\Database\Database::class)) {
                 $db = $this->container->get(\System\Database\Database::class);
                 \System\Database\ConnectionResolver::set($db);
+                \System\Database\ConnectionManager::register('org', static fn() => $db);
             }
         } catch (\Throwable $e) {
             // No DB configured — that's fine, the app may not need one.

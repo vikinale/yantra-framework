@@ -18,13 +18,21 @@ abstract class MasterModel extends QueryBuilder
 {
     protected string $primaryKey = 'id';
 
+    /**
+     * Named connection this model resolves through (multi-DB topology).
+     * Defaults to 'branch'; organization-scoped models override to 'org'.
+     */
+    protected string $connection = 'branch';
+
     public function __construct()
     {
         $logger = $logger ?? new NullLogger();
 
         try {
-            // Use ConnectionResolver to get the active DB instance
-            $this->db = ConnectionResolver::get();
+            // Resolve via the name-keyed ConnectionManager when available,
+            // otherwise fall back to the legacy global ConnectionResolver
+            // (keeps untagged callers, CLI and tests working unchanged).
+            $this->db = $this->resolveConnection();
 
             // Ensure connection is live (Database::connect is lazy-safe)
             $this->db->connect();
@@ -34,6 +42,20 @@ abstract class MasterModel extends QueryBuilder
         }
 
         $this->reset();
+    }
+
+    /**
+     * Resolve the Database this model should use. Prefers the model's named
+     * connection from {@see ConnectionManager}; falls back to the legacy
+     * {@see ConnectionResolver} (which itself falls back to the singleton).
+     */
+    protected function resolveConnection(): Database
+    {
+        if (ConnectionManager::has($this->connection)) {
+            return ConnectionManager::get($this->connection);
+        }
+
+        return ConnectionResolver::get();
     }
 
     public function setPrimaryKey(string $primaryKey): void

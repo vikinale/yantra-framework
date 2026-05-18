@@ -386,8 +386,8 @@ class Model extends MasterModel implements \ArrayAccess, \JsonSerializable
                 $parentIds = array_unique($parentIds);
                 if (empty($parentIds)) continue;
 
-                // Batch query the pivot table
-                $db = ConnectionResolver::get();
+                // Batch query the pivot table on the parent model's connection
+                $db = $models[0]->resolveConnection();
                 $placeholders = implode(', ', array_fill(0, count($parentIds), '?'));
                 $pivotRows = $db->fetchAll(
                     "SELECT `{$foreignPivotKey}`, `{$relatedPivotKey}` FROM `{$pivotTable}` WHERE `{$foreignPivotKey}` IN ({$placeholders})",

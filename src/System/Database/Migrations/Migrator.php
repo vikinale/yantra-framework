@@ -15,13 +15,24 @@ final class Migrator
     /** @var string[] */
     private array $paths = [];
 
+    /**
+     * @param string[]|null $only When provided, only migration files whose
+     *        basename appears in this allowlist are run/rolled back/listed.
+     *        Used by the scoped multi-DB runner to target org vs branch
+     *        schemas without moving or renumbering migration files.
+     */
     public function __construct(
         private Database $db,
-        array|string $paths
+        array|string $paths,
+        private ?array $only = null
     ) {
         $this->addPaths((array)$paths);
         $this->repo = new MigrationRepository($this->db);
         $this->lock = new MigrationLock($this->db);
+        if ($this->only !== null) {
+            // Hash-set for O(1) basename membership tests.
+            $this->only = array_fill_keys(array_values($this->only), true);
+        }
     }
 
     public function addPath(string $path): void
@@ -161,6 +172,14 @@ final class Migrator
         }
         $all = array_unique($all);
         sort($all);
+
+        if ($this->only !== null) {
+            $all = array_values(array_filter(
+                $all,
+                fn(string $f) => isset($this->only[basename($f)])
+            ));
+        }
+
         return $all;
     }
 
