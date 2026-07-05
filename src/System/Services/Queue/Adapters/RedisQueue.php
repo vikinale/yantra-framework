@@ -3,11 +3,11 @@ declare(strict_types=1);
 
 namespace System\Services\Queue\Adapters;
 
-use System\Services\\Queue\Contracts\QueueInterface;
-use System\Services\\Queue\JobPayload;
-use System\Services\\Queue\ReservedJob;
-use System\Services\\Queue\FailureInfo;
-use System\Services\\Queue\Exceptions\QueueException;
+use System\Services\Queue\Contracts\QueueInterface;
+use System\Services\Queue\JobPayload;
+use System\Services\Queue\ReservedJob;
+use System\Services\Queue\FailureInfo;
+use System\Services\Queue\Exceptions\QueueException;
 
 final class RedisQueue implements QueueInterface
 {

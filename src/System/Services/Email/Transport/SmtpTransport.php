@@ -3,11 +3,11 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Transport;
 
-use System\Services\\Email\Contracts\TransportInterface;
-use System\Services\\Email\EmailMessage;
-use System\Services\\Email\Exceptions\TransportException;
-use System\Services\\Email\Mime\MimeBuilder;
-use System\Services\\Email\TransportResult;
+use System\Services\Email\Contracts\TransportInterface;
+use System\Services\Email\EmailMessage;
+use System\Services\Email\Exceptions\TransportException;
+use System\Services\Email\Mime\MimeBuilder;
+use System\Services\Email\TransportResult;
 
 /**
  * Minimal SMTP transport with optional STARTTLS and AUTH (LOGIN/PLAIN).
@@ -159,7 +159,7 @@ final class SmtpTransport implements TransportInterface
 
         if ($supportsPlain) {
             $auth = base64_encode("\0{$this->username}\0{$this->password}");
-            $this->write($sock, "AUTH PLAIN {$auth}\r\n", $debug);
+            $this->write($sock, "AUTH PLAIN {$auth}\r\n", $debug, 'AUTH PLAIN [REDACTED]');
             $resp = $this->readLine($sock, $debug);
             if ($resp['code'] !== 235) {
                 throw TransportException::wrap("AUTH PLAIN failed: {$resp['raw']}");
@@ -170,9 +170,9 @@ final class SmtpTransport implements TransportInterface
         if ($supportsLogin) {
             $this->write($sock, "AUTH LOGIN\r\n", $debug);
             $this->expect($sock, 334, $debug);
-            $this->write($sock, base64_encode($this->username ?? '') . "\r\n", $debug);
+            $this->write($sock, base64_encode($this->username ?? '') . "\r\n", $debug, '[REDACTED]');
             $this->expect($sock, 334, $debug);
-            $this->write($sock, base64_encode($this->password ?? '') . "\r\n", $debug);
+            $this->write($sock, base64_encode($this->password ?? '') . "\r\n", $debug, '[REDACTED]');
             $resp = $this->readLine($sock, $debug);
             if ($resp['code'] !== 235) {
                 throw TransportException::wrap("AUTH LOGIN failed: {$resp['raw']}");
@@ -186,16 +186,19 @@ final class SmtpTransport implements TransportInterface
         if ($resp['code'] !== 334) {
             throw TransportException::wrap('SMTP server does not support AUTH (or rejected auth).');
         }
-        $this->write($sock, base64_encode($this->username ?? '') . "\r\n", $debug);
+        $this->write($sock, base64_encode($this->username ?? '') . "\r\n", $debug, '[REDACTED]');
         $this->expect($sock, 334, $debug);
-        $this->write($sock, base64_encode($this->password ?? '') . "\r\n", $debug);
+        $this->write($sock, base64_encode($this->password ?? '') . "\r\n", $debug, '[REDACTED]');
         $this->expect($sock, 235, $debug);
     }
 
-    private function write($sock, string $data, array &$debug): void
+    private function write($sock, string $data, array &$debug, ?string $redacted = null): void
     {
-        $this->log('C: ' . trim($data));
-        $debug[] = 'C: ' . rtrim($data, "\r\n");
+        // For AUTH-related lines pass $redacted so credentials never reach the log/transcript
+        // (base64 is trivially decodable). The real $data is still sent to the socket.
+        $transcript = $redacted ?? rtrim($data, "\r\n");
+        $this->log('C: ' . $transcript);
+        $debug[] = 'C: ' . $transcript;
         $n = @fwrite($sock, $data);
         if ($n === false) throw TransportException::wrap('SMTP write failed');
     }

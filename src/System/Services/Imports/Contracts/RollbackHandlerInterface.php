@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Imports\Contracts;
 
-use System\Services\\Imports\Model\RollbackRecord;
-use System\Services\\Imports\ImportContext;
+use System\Services\Imports\Model\RollbackRecord;
+use System\Services\Imports\ImportContext;
 
 interface RollbackHandlerInterface
 {

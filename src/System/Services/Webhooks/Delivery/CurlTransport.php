@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Webhooks\Delivery;
 
-use System\Services\\Webhooks\Contracts\TransportInterface;
+use System\Services\Webhooks\Contracts\TransportInterface;
 
 /**
  * Default HTTP transport using cURL.

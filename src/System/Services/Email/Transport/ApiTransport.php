@@ -3,10 +3,10 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Transport;
 
-use System\Services\\Email\Contracts\TransportInterface;
-use System\Services\\Email\EmailMessage;
-use System\Services\\Email\Exceptions\TransportException;
-use System\Services\\Email\TransportResult;
+use System\Services\Email\Contracts\TransportInterface;
+use System\Services\Email\EmailMessage;
+use System\Services\Email\Exceptions\TransportException;
+use System\Services\Email\TransportResult;
 
 /**
  * Generic HTTP API transport.

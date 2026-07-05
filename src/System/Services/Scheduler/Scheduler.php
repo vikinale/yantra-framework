@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Scheduler;
 
-use System\Services\\Scheduler\Contracts\ScheduleStoreInterface;
-use System\Services\\Scheduler\Contracts\ObserverInterface;
+use System\Services\Scheduler\Contracts\ScheduleStoreInterface;
+use System\Services\Scheduler\Contracts\ObserverInterface;
 
 final class Scheduler
 {

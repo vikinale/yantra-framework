@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Queue\Serializers;
 
-use System\Services\\Queue\Contracts\SerializerInterface;
+use System\Services\Queue\Contracts\SerializerInterface;
 
 final class JsonSerializer implements SerializerInterface
 {

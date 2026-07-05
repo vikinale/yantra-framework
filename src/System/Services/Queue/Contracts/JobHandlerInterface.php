@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Queue\Contracts;
 
-use System\Services\\Queue\JobContext;
+use System\Services\Queue\JobContext;
 
 interface JobHandlerInterface
 {

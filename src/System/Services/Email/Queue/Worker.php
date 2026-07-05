@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Queue;
 
-use System\Services\\Email\Mailer;
+use System\Services\Email\Mailer;
 
 /**
  * Minimal queue worker:

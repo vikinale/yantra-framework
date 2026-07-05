@@ -4,10 +4,10 @@ declare(strict_types=1);
 namespace System\Services\Queue\Adapters;
 
 use PDO;
-use System\Services\\Queue\Contracts\QueueInterface;
-use System\Services\\Queue\JobPayload;
-use System\Services\\Queue\ReservedJob;
-use System\Services\\Queue\FailureInfo;
+use System\Services\Queue\Contracts\QueueInterface;
+use System\Services\Queue\JobPayload;
+use System\Services\Queue\ReservedJob;
+use System\Services\Queue\FailureInfo;
 
 final class DatabaseQueue implements QueueInterface
 {
@@ -40,25 +40,49 @@ final class DatabaseQueue implements QueueInterface
         $deadline = microtime(true) + max(0,$waitSeconds);
         do {
             $this->reclaimExpired();
-            $this->pdo->beginTransaction();
-            $sel = $this->pdo->prepare(
-                "SELECT id, queue, payload, attempts, available_at FROM {$this->cfg->jobsTable}
-                 WHERE queue=:queue AND reserved_at IS NULL AND available_at <= :now
-                 ORDER BY available_at ASC LIMIT 1"
-            );
-            $sel->execute([':queue'=>$this->cfg->queue, ':now'=>time()]);
-            $row = $sel->fetch(PDO::FETCH_ASSOC);
-            if (!$row) { $this->pdo->commit(); usleep(150000); continue; }
 
-            $id = (string)$row['id'];
-            $attempts = (int)$row['attempts'] + 1;
-            $upd = $this->pdo->prepare(
-                "UPDATE {$this->cfg->jobsTable}
-                 SET attempts=:attempts, reserved_at=:reserved, visibility_timeout=:vt
-                 WHERE id=:id AND reserved_at IS NULL"
-            );
-            $upd->execute([':attempts'=>$attempts, ':reserved'=>time(), ':vt'=>time()+max(1,$visibilityTimeoutSeconds), ':id'=>$id]);
-            $this->pdo->commit();
+            // Claim a job atomically: lock the candidate row with FOR UPDATE inside a
+            // transaction so a concurrent worker cannot select and reserve the same job.
+            $startedTransaction = !$this->pdo->inTransaction();
+            if ($startedTransaction) {
+                $this->pdo->beginTransaction();
+            }
+            try {
+                $sel = $this->pdo->prepare(
+                    "SELECT id, queue, payload, attempts, available_at FROM {$this->cfg->jobsTable}
+                     WHERE queue=:queue AND reserved_at IS NULL AND available_at <= :now
+                     ORDER BY available_at ASC LIMIT 1 FOR UPDATE"
+                );
+                $sel->execute([':queue'=>$this->cfg->queue, ':now'=>time()]);
+                $row = $sel->fetch(PDO::FETCH_ASSOC);
+                if (!$row) {
+                    if ($startedTransaction) { $this->pdo->commit(); }
+                    usleep(150000);
+                    continue;
+                }
+
+                $id = (string)$row['id'];
+                $attempts = (int)$row['attempts'] + 1;
+                $upd = $this->pdo->prepare(
+                    "UPDATE {$this->cfg->jobsTable}
+                     SET attempts=:attempts, reserved_at=:reserved, visibility_timeout=:vt
+                     WHERE id=:id AND reserved_at IS NULL"
+                );
+                $upd->execute([':attempts'=>$attempts, ':reserved'=>time(), ':vt'=>time()+max(1,$visibilityTimeoutSeconds), ':id'=>$id]);
+
+                // Only treat the job as ours if this worker actually flipped the row.
+                if ($upd->rowCount() !== 1) {
+                    if ($startedTransaction) { $this->pdo->commit(); }
+                    continue;
+                }
+
+                if ($startedTransaction) { $this->pdo->commit(); }
+            } catch (\Throwable $e) {
+                if ($startedTransaction && $this->pdo->inTransaction()) {
+                    $this->pdo->rollBack();
+                }
+                throw $e;
+            }
 
             $payload = json_decode((string)$row['payload'], true);
             if (!is_array($payload)) $payload = [];

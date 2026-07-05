@@ -3,11 +3,13 @@ declare(strict_types=1);
 
 namespace System\Services\Webhooks\Delivery;
 
-use System\Services\\Webhooks\Contracts\DeliveryObserverInterface;
-use System\Services\\Webhooks\Contracts\EndpointResolverInterface;
-use System\Services\\Webhooks\Contracts\TransportInterface;
-use System\Services\\Webhooks\Events\WebhookEvent;
-use System\Services\\Webhooks\Security\SignatureConfig;
+use System\Services\Webhooks\Contracts\DeliveryObserverInterface;
+use System\Services\Webhooks\Contracts\EndpointResolverInterface;
+use System\Services\Webhooks\Contracts\TransportInterface;
+use System\Services\Webhooks\Events\WebhookEvent;
+use System\Services\Webhooks\Security\SignatureConfig;
+use System\Services\Webhooks\Security\UrlSafety;
+use System\Services\Webhooks\Security\WebhookSecurityConfig;
 
 final class WebhookDispatcher
 {
@@ -18,7 +20,8 @@ final class WebhookDispatcher
         private readonly ?DeliveryObserverInterface $observer = null,
         ?SignatureConfig $signatureConfig = null,
         ?RetryPolicy $retryPolicy = null,
-        ?TransportInterface $transport = null
+        ?TransportInterface $transport = null,
+        ?WebhookSecurityConfig $securityConfig = null
     ) {
         $signatureConfig = $signatureConfig ?? SignatureConfig::defaults();
         $retryPolicy = $retryPolicy ?? RetryPolicy::exponentialBackoff();
@@ -26,11 +29,13 @@ final class WebhookDispatcher
 
         $this->signatureConfig = $signatureConfig;
         $this->retryPolicy = $retryPolicy;
+        $this->securityConfig = $securityConfig ?? WebhookSecurityConfig::defaults();
         $this->client = new WebhookClient($transport, $signatureConfig);
     }
 
     private SignatureConfig $signatureConfig;
     private RetryPolicy $retryPolicy;
+    private WebhookSecurityConfig $securityConfig;
 
     /**
      * Dispatch the event to all resolved endpoints.
@@ -64,7 +69,15 @@ final class WebhookDispatcher
 
             $this->observer?->onAttempt($attemptObj);
 
-            $result = $this->client->sendPrepared($prepared['request']);
+            // SSRF guard: reject unsafe target URLs before any request is sent.
+            // Failure is isolated to this delivery so other endpoints still run.
+            $blockReason = UrlSafety::validate($endpoint->url, $this->securityConfig);
+            if ($blockReason !== null) {
+                $result = DeliveryResult::blocked('ssrf_blocked:' . $blockReason);
+            } else {
+                $result = $this->client->sendPrepared($prepared['request']);
+            }
+
             $retry = $this->retryPolicy->decide($attempt, $result);
 
             $outcomes[] = new DeliveryOutcome($attemptObj, $result, $retry);

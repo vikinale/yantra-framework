@@ -11,14 +11,14 @@ final class ViewRenderer
     private array $paths = [];
 
     private string $ext;
-    private bool $autoEscape = false;
+    private bool $autoEscape = true;
 
     /** @var array<string, string> */
     private array $sections = [];
     private ?string $currentSection = null;
     private ?string $layout = null;
 
-    public function __construct(array $paths, string $ext = '.php', bool $autoEscape = false)
+    public function __construct(array $paths, string $ext = '.php', bool $autoEscape = true)
     {
         $this->ext = $this->normalizeExt($ext);
         $this->autoEscape = $autoEscape;
@@ -238,9 +238,14 @@ final class ViewRenderer
 
         // Auto-escape if enabled
         if ($this->autoEscape) {
+            // Keys injected by the renderer itself hold already-rendered, trusted
+            // HTML (the inner view output and composed sections). Re-wrapping them
+            // in EscapedData would double-escape the layout's content echo, rendering
+            // real markup as literal text, so they pass through untouched.
+            $rawKeys = ['content' => true, '_sections' => true];
             $safeData = [];
             foreach ($data as $key => $value) {
-                $safeData[$key] = new EscapedData($value);
+                $safeData[$key] = isset($rawKeys[$key]) ? $value : new EscapedData($value);
             }
             $data = $safeData;
         }

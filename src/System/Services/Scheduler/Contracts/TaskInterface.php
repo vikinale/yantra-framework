@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Scheduler\Contracts;
 
-use System\Services\\Scheduler\SchedulerContext;
+use System\Services\Scheduler\SchedulerContext;
 
 interface TaskInterface
 {

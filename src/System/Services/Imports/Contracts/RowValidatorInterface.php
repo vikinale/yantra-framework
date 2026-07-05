@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Imports\Contracts;
 
-use System\Services\\Imports\Model\RowValidationResult;
+use System\Services\Imports\Model\RowValidationResult;
 
 interface RowValidatorInterface
 {

@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Transport;
 
-use System\Services\\Email\Attachment;
-use System\Services\\Email\EmailMessage;
+use System\Services\Email\Attachment;
+use System\Services\Email\EmailMessage;
 
 /**
  * Builds a SendGrid v3 Mail Send payload from the toolkit's EmailMessage.

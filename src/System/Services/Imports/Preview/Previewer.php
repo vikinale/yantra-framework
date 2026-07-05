@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Imports\Preview;
 
-use System\Services\\Imports\Csv\CsvReader;
+use System\Services\Imports\Csv\CsvReader;
 
 final class Previewer
 {

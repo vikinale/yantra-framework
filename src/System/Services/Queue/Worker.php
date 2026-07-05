@@ -3,11 +3,11 @@ declare(strict_types=1);
 
 namespace System\Services\Queue;
 
-use System\Services\\Queue\Contracts\QueueInterface;
-use System\Services\\Queue\Contracts\SerializerInterface;
-use System\Services\\Queue\Contracts\JobHandlerInterface;
-use System\Services\\Queue\Exceptions\HandlerNotRegisteredException;
-use System\Services\\Queue\Retry\RetryPolicyInterface;
+use System\Services\Queue\Contracts\QueueInterface;
+use System\Services\Queue\Contracts\SerializerInterface;
+use System\Services\Queue\Contracts\JobHandlerInterface;
+use System\Services\Queue\Exceptions\HandlerNotRegisteredException;
+use System\Services\Queue\Retry\RetryPolicyInterface;
 
 final class Worker
 {

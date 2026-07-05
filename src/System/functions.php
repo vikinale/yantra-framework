@@ -363,21 +363,22 @@ if (!function_exists('app_path')) {
 
 if (!function_exists('e')) {
     /**
-     * Escape HTML text node.
+     * Escape HTML text node. Null is treated as an empty string so that
+     * rendering a nullable value (e.g. an optional DB column) never fatals.
      */
-    function e(string $value): string
+    function e(?string $value): string
     {
-        return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 }
 
 if (!function_exists('esc_attr')) {
     /**
-     * Escape HTML attribute value.
+     * Escape HTML attribute value. Null is treated as an empty string.
      */
-    function esc_attr(string $value): string
+    function esc_attr(?string $value): string
     {
-        return htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        return htmlspecialchars((string) $value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 }
 
@@ -386,9 +387,9 @@ if (!function_exists('esc_url')) {
      * Minimal URL escape/sanitization for output contexts.
      * (Not a validator; blocks obvious javascript: vectors.)
      */
-    function esc_url(string $url): string
+    function esc_url(?string $url): string
     {
-        $url = trim($url);
+        $url = trim((string) $url);
         if ($url === '') return '';
 
         // Strip control characters and embedded whitespace

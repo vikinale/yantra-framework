@@ -36,7 +36,27 @@ class EscapedData implements \ArrayAccess, \IteratorAggregate, \Countable, \Stri
              return htmlspecialchars((string) $this->data, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         }
 
-        return '';
+        // Non-stringable object: never silently drop data. Emit an escaped, visible
+        // debug marker so the output is safe yet clearly signals a rendering mistake.
+        if (is_object($this->data)) {
+            return htmlspecialchars('[object ' . get_class($this->data) . ']', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
+        // Booleans stringify to '' (false) or '1' (true) via (string) cast, which hides
+        // data; emit an explicit, escaped representation instead.
+        if (is_bool($this->data)) {
+            return $this->data ? 'true' : 'false';
+        }
+
+        // Arrays cannot be cast to string safely; surface a visible, escaped marker
+        // rather than dropping the value or triggering an "Array to string" warning.
+        if (is_array($this->data)) {
+            return htmlspecialchars('[array]', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
+        // Any remaining type (e.g. resource): escape its stringified form rather than
+        // dropping it entirely.
+        return htmlspecialchars((string) $this->data, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
     // ArrayAccess implementation to wrap children

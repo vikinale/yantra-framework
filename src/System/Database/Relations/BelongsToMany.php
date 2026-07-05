@@ -6,6 +6,7 @@ namespace System\Database\Relations;
 use System\Database\Database;
 use System\Database\ConnectionResolver;
 use System\Database\Model;
+use System\Database\Support\Identifier;
 use System\Support\Collection;
 
 /**
@@ -113,9 +114,12 @@ class BelongsToMany
 
             $columns = array_keys($data);
             $placeholders = implode(', ', array_fill(0, count($data), '?'));
-            $columnList = implode(', ', array_map(fn($c) => "`{$c}`", $columns));
+            // Validate + quote each pivot column and the pivot table through Identifier,
+            // rejecting malformed/injection identifiers (Identifier throws on invalid input).
+            $columnList = implode(', ', array_map([Identifier::class, 'column'], $columns));
+            $table = Identifier::table($this->pivotTable);
 
-            $sql = "INSERT IGNORE INTO `{$this->pivotTable}` ({$columnList}) VALUES ({$placeholders})";
+            $sql = "INSERT IGNORE INTO {$table} ({$columnList}) VALUES ({$placeholders})";
             $this->db->execute($sql, array_values($data));
         }
     }

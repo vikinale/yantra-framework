@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Contracts;
 
-use System\Services\\Email\EmailMessage;
-use System\Services\\Email\TransportResult;
+use System\Services\Email\EmailMessage;
+use System\Services\Email\TransportResult;
 
 interface SendObserverInterface
 {

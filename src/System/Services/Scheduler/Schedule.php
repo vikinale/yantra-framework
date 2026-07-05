@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Scheduler;
 
-use System\Services\\Scheduler\Contracts\TaskInterface;
-use System\Services\\Scheduler\Cron\CronExpression;
+use System\Services\Scheduler\Contracts\TaskInterface;
+use System\Services\Scheduler\Cron\CronExpression;
 
 final class Schedule
 {

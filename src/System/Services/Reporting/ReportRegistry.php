@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace System\Services\Reporting;
 
-use System\Services\\Reporting\Definition\ReportDefinitionInterface;
-use System\Services\\Reporting\Definition\ReportMetadata;
-use System\Services\\Reporting\Exceptions\ReportNotFoundException;
+use System\Services\Reporting\Definition\ReportDefinitionInterface;
+use System\Services\Reporting\Definition\ReportMetadata;
+use System\Services\Reporting\Exceptions\ReportNotFoundException;
 use RuntimeException;
 
 final class ReportRegistry

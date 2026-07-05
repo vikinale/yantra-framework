@@ -73,6 +73,13 @@ final class Application
         Config::setInstance($configRepo);
 
         $this->config = Config::get('app') ?? [];
+
+        // Apply the configured application timezone so every PHP date()/time()
+        // call (web rendering AND the CLI scheduler) agrees. Without this PHP
+        // defaults to UTC regardless of `app.timezone`, making stored/rendered
+        // datetimes disagree with the configured zone. Falls back to UTC.
+        date_default_timezone_set((string)($this->config['timezone'] ?? 'UTC'));
+
         if($environment)
            $this->environment = $environment;
         else{

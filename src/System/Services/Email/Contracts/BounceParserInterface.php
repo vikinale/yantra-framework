@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Contracts;
 
-use System\Services\\Email\Bounce\BounceEvent;
+use System\Services\Email\Bounce\BounceEvent;
 
 interface BounceParserInterface
 {

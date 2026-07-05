@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Scheduler;
 
-use System\Services\\Scheduler\Tasks\CallableTask;
+use System\Services\Scheduler\Tasks\CallableTask;
 
 final class ScheduleRegistry
 {

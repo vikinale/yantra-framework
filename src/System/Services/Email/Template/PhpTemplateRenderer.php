@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Template;
 
-use System\Services\\Email\Contracts\TemplateRendererInterface;
-use System\Services\\Email\Exceptions\TemplateException;
-use System\Services\\Email\TemplateResult;
+use System\Services\Email\Contracts\TemplateRendererInterface;
+use System\Services\Email\Exceptions\TemplateException;
+use System\Services\Email\TemplateResult;
 
 /**
  * Renders PHP templates from disk.

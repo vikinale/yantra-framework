@@ -3,10 +3,10 @@ declare(strict_types=1);
 
 namespace System\Services\Imports;
 
-use System\Services\\Imports\Mapping\ColumnMap;
-use System\Services\\Imports\Contracts\RowValidatorInterface;
-use System\Services\\Imports\Contracts\RowProcessorInterface;
-use System\Services\\Imports\Contracts\RollbackHandlerInterface;
+use System\Services\Imports\Mapping\ColumnMap;
+use System\Services\Imports\Contracts\RowValidatorInterface;
+use System\Services\Imports\Contracts\RowProcessorInterface;
+use System\Services\Imports\Contracts\RollbackHandlerInterface;
 
 final class ImportDefinition
 {

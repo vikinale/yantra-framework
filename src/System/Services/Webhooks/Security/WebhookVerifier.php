@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Webhooks\Security;
 
-use System\Services\\Webhooks\Contracts\ReplayProtectorInterface;
-use System\Services\\Webhooks\Exceptions\SignatureException;
+use System\Services\Webhooks\Contracts\ReplayProtectorInterface;
+use System\Services\Webhooks\Exceptions\SignatureException;
 
 /**
  * Inbound webhook verification.

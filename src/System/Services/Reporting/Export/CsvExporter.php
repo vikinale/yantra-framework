@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace System\Services\Reporting\Export;
 
 use DateTimeInterface;
-use System\Services\\Reporting\ReportResult;
+use System\Services\Reporting\ReportResult;
 
 final class CsvExporter
 {

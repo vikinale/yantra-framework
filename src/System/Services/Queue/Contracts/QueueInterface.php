@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace System\Services\Queue\Contracts;
 
-use System\Services\\Queue\JobPayload;
-use System\Services\\Queue\ReservedJob;
-use System\Services\\Queue\FailureInfo;
+use System\Services\Queue\JobPayload;
+use System\Services\Queue\ReservedJob;
+use System\Services\Queue\FailureInfo;
 
 interface QueueInterface
 {

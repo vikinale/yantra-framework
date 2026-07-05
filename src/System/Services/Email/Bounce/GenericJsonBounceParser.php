@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Bounce;
 
-use System\Services\\Email\Contracts\BounceParserInterface;
+use System\Services\Email\Contracts\BounceParserInterface;
 
 /**
  * Very generic JSON bounce parser.

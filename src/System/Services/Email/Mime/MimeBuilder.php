@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Mime;
 
-use System\Services\\Email\Attachment;
-use System\Services\\Email\EmailMessage;
+use System\Services\Email\Attachment;
+use System\Services\Email\EmailMessage;
 
 /**
  * Builds RFC 5322 / MIME message for SMTP transport.
@@ -26,15 +26,18 @@ final class MimeBuilder
         if (!empty($m->cc)) $headers[] = 'Cc: ' . $this->joinAddresses($m->cc);
         if (!empty($m->replyTo)) $headers[] = 'Reply-To: ' . $this->joinAddresses($m->replyTo);
 
-        $headers[] = 'Subject: ' . $this->encodeHeader($m->subject ?? '');
+        $headers[] = 'Subject: ' . $this->encodeHeader($this->stripCrlf($m->subject ?? ''));
         $headers[] = 'Date: ' . gmdate('D, d M Y H:i:s') . ' +0000';
         $headers[] = 'MIME-Version: 1.0';
 
         // Custom headers
         foreach ($m->headers as $k => $v) {
-            $k = trim((string)$k);
-            if ($k === '') continue;
-            $headers[] = $k . ': ' . $this->encodeHeader((string)$v);
+            // Strip CR/LF and validate the key is a legal header token to prevent header injection.
+            $k = trim($this->stripCrlf((string)$k));
+            if ($k === '' || !preg_match('/^[A-Za-z0-9-]+$/', $k)) continue;
+            // Strip CR/LF from the raw value BEFORE encoding so injected headers cannot break out;
+            // legitimate line-folding is still produced by encodeHeader() afterwards.
+            $headers[] = $k . ': ' . $this->encodeHeader($this->stripCrlf((string)$v));
         }
 
         $body = '';
@@ -64,6 +67,11 @@ final class MimeBuilder
     private function joinAddresses(array $addresses): string
     {
         return implode(', ', array_map(fn($a) => $a->format(), $addresses));
+    }
+
+    private function stripCrlf(string $value): string
+    {
+        return str_replace(["\r", "\n"], '', $value);
     }
 
     private function encodeHeader(string $value): string

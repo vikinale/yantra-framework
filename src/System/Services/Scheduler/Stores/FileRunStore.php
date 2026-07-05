@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace System\Services\Scheduler\Stores;
 
-use System\Services\\Scheduler\Contracts\ScheduleStoreInterface;
-use System\Services\\Scheduler\Schedule;
-use System\Services\\Scheduler\ScheduleRun;
+use System\Services\Scheduler\Contracts\ScheduleStoreInterface;
+use System\Services\Scheduler\Schedule;
+use System\Services\Scheduler\ScheduleRun;
 
 final class FileRunStore implements ScheduleStoreInterface
 {
@@ -29,6 +29,6 @@ final class FileRunStore implements ScheduleStoreInterface
             'status'=>$run->status,'errorClass'=>$run->errorClass,'errorMessage'=>$run->errorMessage,
             'meta'=>$run->meta,
         ], JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES);
-        file_put_contents($this->runsFile, $line."\n", FILE_APPEND);
+        file_put_contents($this->runsFile, $line."\n", FILE_APPEND | LOCK_EX);
     }
 }

@@ -16,7 +16,7 @@ use System\Core\Application;
 return [
     // Configuration
     'config.view.auto_escape' => function () {
-        return (bool) (Config::get('view.auto_escape') ?? false);
+        return (bool) (Config::get('view.auto_escape') ?? true);
     },
     'config.app.routes_cache' => function () {
         // Dynamic path based on environment/scope - Application handles this logic for now,

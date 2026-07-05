@@ -32,6 +32,11 @@ final class RetryPolicy
             return RetryDecision::no('delivered');
         }
 
+        // Locally blocked (e.g. SSRF-unsafe URL) is permanent; never retry.
+        if ($result->blocked) {
+            return RetryDecision::no($result->error ?? 'blocked');
+        }
+
         // Retry for network errors
         if ($result->statusCode === 0) {
             return RetryDecision::yes($this->delayMs($attempt), 'network_error');

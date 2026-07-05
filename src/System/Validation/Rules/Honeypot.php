@@ -9,7 +9,7 @@ final class Honeypot implements RuleInterface
 {
     public function passes(string $field, mixed $value, array $data): bool
     {
-        return empty($value);
+        return $value === null || (is_string($value) && trim($value) === '');
     }
     public function message(string $field): string { return "Spam detected."; }
 }

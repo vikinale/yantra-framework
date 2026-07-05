@@ -6,7 +6,7 @@ namespace System\Services\Reporting\Params;
 use DateTimeImmutable;
 use DateTimeInterface;
 use DateTimeZone;
-use System\Services\\Reporting\ReportContext;
+use System\Services\Reporting\ReportContext;
 use RuntimeException;
 
 final class ParamCaster

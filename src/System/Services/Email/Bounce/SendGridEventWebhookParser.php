@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Bounce;
 
-use System\Services\\Email\Contracts\BounceBatchParserInterface;
+use System\Services\Email\Contracts\BounceBatchParserInterface;
 
 /**
  * Parse SendGrid Event Webhook payloads (JSON array of events) and normalize

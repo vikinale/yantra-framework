@@ -3,11 +3,11 @@ declare(strict_types=1);
 
 namespace System\Services\Queue\Adapters;
 
-use System\Services\\Queue\Contracts\QueueInterface;
-use System\Services\\Queue\JobPayload;
-use System\Services\\Queue\ReservedJob;
-use System\Services\\Queue\FailureInfo;
-use System\Services\\Queue\Exceptions\QueueException;
+use System\Services\Queue\Contracts\QueueInterface;
+use System\Services\Queue\JobPayload;
+use System\Services\Queue\ReservedJob;
+use System\Services\Queue\FailureInfo;
+use System\Services\Queue\Exceptions\QueueException;
 
 final class FileQueue implements QueueInterface
 {
@@ -75,7 +75,13 @@ final class FileQueue implements QueueInterface
                 $tmp = $this->reserved . DIRECTORY_SEPARATOR . $id . '.tmp';
                 $dst = $this->reserved . DIRECTORY_SEPARATOR . $id . '.json';
                 file_put_contents($tmp, json_encode($payload, JSON_UNESCAPED_UNICODE|JSON_UNESCAPED_SLASHES));
-                rename($tmp, $dst);
+                if (!rename($tmp, $dst)) {
+                    // Reservation failed to move into the reserved dir. Do NOT delete the
+                    // pending file, otherwise the job would be lost. Clean up the temp file
+                    // and leave the job pending so it can be reserved again next time.
+                    @unlink($tmp);
+                    continue;
+                }
                 @unlink($file);
 
                 return new ReservedJob(

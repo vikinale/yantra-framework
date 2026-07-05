@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Scheduler\Tasks;
 
-use System\Services\\Scheduler\Contracts\TaskInterface;
-use System\Services\\Scheduler\SchedulerContext;
+use System\Services\Scheduler\Contracts\TaskInterface;
+use System\Services\Scheduler\SchedulerContext;
 
 final class CallableTask implements TaskInterface
 {

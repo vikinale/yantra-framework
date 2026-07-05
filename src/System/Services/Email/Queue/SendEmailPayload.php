@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Queue;
 
-use System\Services\\Email\Address;
-use System\Services\\Email\Attachment;
-use System\Services\\Email\EmailMessage;
+use System\Services\Email\Address;
+use System\Services\Email\Attachment;
+use System\Services\Email\EmailMessage;
 
 final class SendEmailPayload
 {

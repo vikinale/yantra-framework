@@ -3,11 +3,11 @@ declare(strict_types=1);
 
 namespace System\Services\Reporting;
 
-use System\Services\\Reporting\Definition\ReportDefinitionInterface;
-use System\Services\\Reporting\Exceptions\ReportExecutionException;
-use System\Services\\Reporting\Params\ParamCaster;
-use System\Services\\Reporting\Params\ParamValidator;
-use System\Services\\Reporting\Security\ReportAuthorizerInterface;
+use System\Services\Reporting\Definition\ReportDefinitionInterface;
+use System\Services\Reporting\Exceptions\ReportExecutionException;
+use System\Services\Reporting\Params\ParamCaster;
+use System\Services\Reporting\Params\ParamValidator;
+use System\Services\Reporting\Security\ReportAuthorizerInterface;
 
 final class ReportManager
 {

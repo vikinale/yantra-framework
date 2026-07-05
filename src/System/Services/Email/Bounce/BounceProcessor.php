@@ -3,10 +3,10 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Bounce;
 
-use System\Services\\Email\Contracts\BounceHandlerInterface;
-use System\Services\\Email\Contracts\BounceBatchParserInterface;
-use System\Services\\Email\Contracts\BounceParserInterface;
-use System\Services\\Email\Exceptions\BounceException;
+use System\Services\Email\Contracts\BounceHandlerInterface;
+use System\Services\Email\Contracts\BounceBatchParserInterface;
+use System\Services\Email\Contracts\BounceParserInterface;
+use System\Services\Email\Exceptions\BounceException;
 
 /**
  * Bounce processor is invoked by the application when it receives a bounce signal.

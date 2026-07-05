@@ -3,12 +3,12 @@ declare(strict_types=1);
 
 namespace System\Services\Email;
 
-use System\Services\\Email\Contracts\QueueInterface;
-use System\Services\\Email\Contracts\SendObserverInterface;
-use System\Services\\Email\Contracts\TemplateRendererInterface;
-use System\Services\\Email\Contracts\TransportInterface;
-use System\Services\\Email\Queue\QueueJob;
-use System\Services\\Email\Queue\SendEmailPayload;
+use System\Services\Email\Contracts\QueueInterface;
+use System\Services\Email\Contracts\SendObserverInterface;
+use System\Services\Email\Contracts\TemplateRendererInterface;
+use System\Services\Email\Contracts\TransportInterface;
+use System\Services\Email\Queue\QueueJob;
+use System\Services\Email\Queue\SendEmailPayload;
 
 final class Mailer
 {

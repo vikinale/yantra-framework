@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Scheduler\Contracts;
 
-use System\Services\\Scheduler\Schedule;
-use System\Services\\Scheduler\ScheduleRun;
+use System\Services\Scheduler\Schedule;
+use System\Services\Scheduler\ScheduleRun;
 
 interface ScheduleStoreInterface
 {

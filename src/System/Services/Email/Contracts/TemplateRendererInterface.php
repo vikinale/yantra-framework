@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Contracts;
 
-use System\Services\\Email\TemplateResult;
+use System\Services\Email\TemplateResult;
 
 interface TemplateRendererInterface
 {

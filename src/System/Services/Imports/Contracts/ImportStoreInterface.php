@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace System\Services\Imports\Contracts;
 
-use System\Services\\Imports\Model\ImportState;
-use System\Services\\Imports\Model\ImportError;
-use System\Services\\Imports\Model\RollbackRecord;
+use System\Services\Imports\Model\ImportState;
+use System\Services\Imports\Model\ImportError;
+use System\Services\Imports\Model\RollbackRecord;
 
 interface ImportStoreInterface
 {

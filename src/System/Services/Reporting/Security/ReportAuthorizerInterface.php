@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Reporting\Security;
 
-use System\Services\\Reporting\Definition\ReportDefinitionInterface;
-use System\Services\\Reporting\ReportContext;
+use System\Services\Reporting\Definition\ReportDefinitionInterface;
+use System\Services\Reporting\ReportContext;
 
 /**
  * Optional authorization hook.

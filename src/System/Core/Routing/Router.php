@@ -121,6 +121,15 @@ final class Router
 
         $methodFile = $this->cacheDir . DIRECTORY_SEPARATOR . $method . '.php';
 
+        // HTTP spec (RFC 9110 §9.3.2): a HEAD request is identical to GET but
+        // the server must not return a body. The route compiler only emits a
+        // GET bucket, so when no dedicated HEAD cache exists, fall back to the
+        // GET bucket — HEAD then resolves the exact same routes (uptime probes,
+        // `curl -I`, link-preview crawlers) instead of 500-ing.
+        if ($method === 'HEAD' && (!is_file($methodFile) || !is_readable($methodFile))) {
+            $methodFile = $this->cacheDir . DIRECTORY_SEPARATOR . 'GET.php';
+        }
+
         if (!is_file($methodFile) || !is_readable($methodFile)) {
             throw new \RuntimeException("Route cache missing for method {$method}: {$methodFile}");
         }

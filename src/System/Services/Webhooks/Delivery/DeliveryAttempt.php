@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Webhooks\Delivery;
 
-use System\Services\\Webhooks\Events\WebhookEvent;
-use System\Services\\Webhooks\Value\WebhookEndpoint;
+use System\Services\Webhooks\Events\WebhookEvent;
+use System\Services\Webhooks\Value\WebhookEndpoint;
 
 final class DeliveryAttempt
 {

@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace System\Services\Queue\Retry;
 
-use System\Services\\Queue\ReservedJob;
+use System\Services\Queue\ReservedJob;
 
 final class ExponentialBackoff implements RetryPolicyInterface
 {

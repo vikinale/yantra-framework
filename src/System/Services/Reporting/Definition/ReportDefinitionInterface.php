@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 namespace System\Services\Reporting\Definition;
 
-use System\Services\\Reporting\Params\ParamSchema;
-use System\Services\\Reporting\ReportContext;
-use System\Services\\Reporting\ReportResult;
+use System\Services\Reporting\Params\ParamSchema;
+use System\Services\Reporting\ReportContext;
+use System\Services\Reporting\ReportResult;
 
 interface ReportDefinitionInterface
 {

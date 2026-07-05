@@ -4,8 +4,8 @@ declare(strict_types=1);
 namespace System\Services\Reporting\Params;
 
 use DateTimeInterface;
-use System\Services\\Reporting\Exceptions\ReportValidationException;
-use System\Services\\Reporting\ReportContext;
+use System\Services\Reporting\Exceptions\ReportValidationException;
+use System\Services\Reporting\ReportContext;
 
 final class ParamValidator
 {
@@ -82,7 +82,25 @@ final class ParamValidator
             }
         }
 
-        if (($def->type === ParamType::INT || $def->type === ParamType::FLOAT) && is_numeric($value)) {
+        if ($def->type === ParamType::INT) {
+            if (!$this->isValidInt($value)) {
+                $errors[] = $this->invalidMessage(ParamType::INT);
+                return $errors;
+            }
+            $num = (float)$value;
+            if ($def->min !== null && $num < (float)$def->min) {
+                $errors[] = "Must be >= {$def->min}.";
+            }
+            if ($def->max !== null && $num > (float)$def->max) {
+                $errors[] = "Must be <= {$def->max}.";
+            }
+        }
+
+        if ($def->type === ParamType::FLOAT) {
+            if (!$this->isValidFloat($value)) {
+                $errors[] = $this->invalidMessage(ParamType::FLOAT);
+                return $errors;
+            }
             $num = (float)$value;
             if ($def->min !== null && $num < (float)$def->min) {
                 $errors[] = "Must be >= {$def->min}.";
@@ -137,6 +155,39 @@ final class ParamValidator
         }
 
         return $errors;
+    }
+
+    /**
+     * A genuine integer for the INT type: a real PHP int, or a string that is
+     * strictly an integer literal (optional sign, digits only). Rejects floats,
+     * numeric strings like "10.5"/"1e3", hex/octal notations, and non-scalars,
+     * so range checks never run against a coerced value.
+     */
+    private function isValidInt(mixed $value): bool
+    {
+        if (is_int($value)) {
+            return true;
+        }
+        if (is_string($value)) {
+            return preg_match('/^[+-]?\d+$/', $value) === 1;
+        }
+        return false;
+    }
+
+    /**
+     * A genuine number for the FLOAT type: a non-array numeric scalar. Rejects
+     * arrays, bools, objects and non-numeric strings so range checks only run
+     * against a real numeric value.
+     */
+    private function isValidFloat(mixed $value): bool
+    {
+        if (is_int($value) || is_float($value)) {
+            return true;
+        }
+        if (is_string($value)) {
+            return is_numeric($value);
+        }
+        return false;
     }
 
     private function isEmpty(mixed $value): bool

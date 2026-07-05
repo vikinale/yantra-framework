@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace System\Services\Email\Queue;
 
-use System\Services\\Email\Contracts\QueueInterface;
-use System\Services\\Email\Exceptions\QueueException;
+use System\Services\Email\Contracts\QueueInterface;
+use System\Services\Email\Exceptions\QueueException;
 
 /**
  * Simple file-based queue:
@@ -66,9 +66,11 @@ final class FileQueue implements QueueInterface
                 continue;
             }
 
-            // Move to processing (atomic rename)
+            // Move to processing (atomic rename). If the rename fails another worker
+            // likely grabbed the file first, or the move did not complete; skip this
+            // job so it is not returned as reserved when it was never moved.
             $processingPath = $this->processingPath($job->id);
-            if (!@rename($file, $processingPath)) {
+            if (!rename($file, $processingPath)) {
                 continue;
             }
 
@@ -91,12 +93,18 @@ final class FileQueue implements QueueInterface
         $src = $this->processingPath($jobId);
         $dst = $this->failedPath($jobId);
         if (is_file($src)) {
-            @rename($src, $dst);
+            if (!rename($src, $dst)) {
+                throw new QueueException("Failed to move job to failed (rename): {$jobId}");
+            }
         } elseif (is_file($this->pendingPath($jobId))) {
-            @rename($this->pendingPath($jobId), $dst);
+            if (!rename($this->pendingPath($jobId), $dst)) {
+                throw new QueueException("Failed to move job to failed (rename): {$jobId}");
+            }
         }
 
-        @file_put_contents($dst . '.reason.txt', $reason);
+        if (file_put_contents($dst . '.reason.txt', $reason) === false) {
+            throw new QueueException("Failed to write failure reason: {$jobId}");
+        }
     }
 
     public function size(): int

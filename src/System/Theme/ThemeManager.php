@@ -162,25 +162,14 @@ final class ThemeManager
 
     private function isDebug(): bool
     {
-        // Constants (if your bootstrap defines them)
-        if (!defined('APP_DEBUG')){
-            define('APP_DEBUG',false);
+        // Constant (if your bootstrap defines it) takes precedence.
+        if (defined('APP_DEBUG')) {
+            return (bool) APP_DEBUG;
         }
-        else{
-            return APP_DEBUG;
-        }
-        if(APP_DEBUG){return  true;}
 
         $appCfg = is_array(Config::get('app')) ? (array) Config::get('app') : [];
 
-        if (array_key_exists('debug', $appCfg)) {
-            return (bool) $appCfg['debug'];
-        }
-
-        $env = (string)($appCfg['env'] ?? $appCfg['environment'] ?? '');
-
-        $env = strtolower(trim($env));
-        return in_array($env, ['development', 'dev', 'local', 'testing'], true);
+        return (bool)($appCfg['debug'] ?? ((($appCfg['env'] ?? '') === 'development')));
     }
 
     /** @return string[] */
