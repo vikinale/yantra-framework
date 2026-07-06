@@ -4,33 +4,48 @@ This recipe throttles requests with the built-in `rate.limit` middleware (`Syste
 
 ```php
 $r->post('/api/login', 'Api\AuthController@login')
-  ->middleware('rate.limit');   // default: 60 requests / 60s
+  ->middleware('rate.limit', ['limit' => 5, 'window' => 60]);  // 5 requests / 60s
 ```
-
-::: warning Per-route params are not honored by the `rate.limit` alias
-When applied via the `rate.limit` alias, the middleware's `__invoke()` **ignores** any route-level params array and uses its **constructor defaults** (60 requests / 60 seconds, key `'global'`). Passing `->middleware('rate.limit', ['limit' => 5])` does **not** change the limit today.
-
-To use a custom limit, register a configured instance in `config/dependencies.php` and bind it under your own alias (see below). Only the container-configured instance's constructor values take effect.
-:::
 
 ## Applying it to routes
 
-`rate.limit` is one of the eight built-in middleware aliases, so you can use it without registering anything. Attach the bare alias to a single route or a whole group for the default 60/60s limit.
+`rate.limit` is one of the eight built-in middleware aliases, so you can use it without registering anything. Attach the bare alias for the defaults (60 requests / 60 seconds), or pass a params array to configure it per route.
 
 ```php
-// Single route
+// Default: 60 requests / 60s
 $r->post('/api/data', 'Api\DataController@store')
   ->middleware('rate.limit');
 
-// A whole group
-$r->group('/api', ['middleware' => ['auth.jwt', 'rate.limit']], function ($r) {
-    $r->get('/me', 'Api\ProfileController@show');
-});
+// Custom limit for this route
+$r->post('/api/login', 'Api\AuthController@login')
+  ->middleware('rate.limit', ['limit' => 5, 'window' => 60, 'key' => 'login']);
 ```
 
-## Custom limits via the container
+Route params are passed as the **second argument** to `->middleware()` — the Laravel-style colon string (`'rate.limit:5,60'`) is **not** parsed by the router. The same applies to a group: capture the group and chain `->middleware()` with the params array.
 
-Because the alias ignores route params, a custom limit must come from a `RateLimitMiddleware` **constructed with your values** and bound under your own alias. Register a configured instance in `config/dependencies.php`:
+```php
+$r->group('/api', ['middleware' => ['auth.jwt']], function ($r) {
+    $r->get('/me', 'Api\ProfileController@show');
+})->middleware('rate.limit', ['limit' => 100, 'window' => 60]);
+```
+
+## Route params
+
+`__invoke()` merges these route params over the middleware's constructor defaults:
+
+| Param | Type | Default | Meaning |
+|---|---|---|---|
+| `limit` | int | `60` | Max requests allowed per window |
+| `window` | int | `60` | Window length in **seconds** |
+| `key` | string | `'global'` | Namespace for the counter — use distinct keys to give different routes independent buckets |
+| `by` | string | `'ip+route'` | What to bucket by: `'ip'`, `'route'`, or `'ip+route'` |
+| `message` | string | `'Too many requests…'` | Body message returned on 429 |
+| `headers` | bool | `true` | Whether to emit `X-RateLimit-*` headers |
+| `fileCounter` | bool | `false` | Use a file-backed counter instead of the session fallback |
+
+## Reusable named limiters via the container
+
+When several routes share the same policy, binding a pre-configured instance under its own alias keeps route definitions terse and the limit in one place. Register it in `config/dependencies.php`:
 
 ```php
 // config/dependencies.php
@@ -48,23 +63,12 @@ return [
 ```
 
 ```php
-// Then apply your custom alias to routes
+// Then apply your custom alias to routes — no params needed
 $r->post('/api/login', 'Api\AuthController@login')
   ->middleware('rate.limit.login');
 ```
 
-## Constructor parameters
-
-`RateLimitMiddleware`'s constructor accepts these values (used by any instance you build and bind):
-
-| Param | Type | Default | Meaning |
-|---|---|---|---|
-| `limit` | int | `60` | Max requests allowed per window |
-| `windowSeconds` | int | `60` | Window length in **seconds** |
-| `key` | string | `'global'` | Namespace for the counter — use distinct keys to give different route groups independent buckets |
-| `by` | string | `'ip+route'` | What to bucket by: `'ip'`, `'route'`, or `'ip+route'` |
-| `message` | string | `'Too many requests…'` | Body message returned on 429 |
-| `emitHeaders` | bool | `true` | Whether to emit `X-RateLimit-*` headers |
+The constructor arg is `windowSeconds` (the route param is `window`); everything else matches the param names above.
 
 ## How it behaves
 
@@ -84,11 +88,11 @@ X-RateLimit-Reset:     1751826000
 Because the window is fixed, the counter resets abruptly at each boundary — a client can send up to `limit` requests in the last moment of one window and `limit` again in the first moment of the next.
 
 ::: warning Gotchas
+- **Params go in the array, not a colon string.** `->middleware('rate.limit', ['limit' => 5])` works; `->middleware('rate.limit:5,60')` does not — the string becomes a literal alias that fails to resolve.
 - **The window is fixed, not sliding.** Bursts can reach up to `2 × limit` across a window boundary. If you need smooth limiting, layer your own logic.
-- **Give unrelated limits distinct `key` values.** All routes sharing the default `key` of `'global'` (and the same `by` identity) share one counter — a login limiter and an OTP limiter with the same key will drain each other. Set `key` when constructing a configured instance.
-- **The bare `rate.limit` alias always applies its constructor defaults (60 / 60s, key `'global'`).** Route params are ignored — build and bind a configured instance for anything else.
+- **Give unrelated limits distinct `key` values.** Routes sharing the default `key` of `'global'` (and the same `by` identity) share one counter — a login limiter and an OTP limiter with the same key will drain each other.
 - **Counter backend matters in production.** Without APCu (or the file counter), the fallback session counter is per-session and won't stop a client that drops its cookie — enable APCu for a shared, robust limit.
-- **`windowSeconds` is in seconds.** A `windowSeconds` of 60 is per minute; there is no minutes/hours unit.
+- **`window` is in seconds.** A `window` of 60 is per minute; there is no minutes/hours unit.
 :::
 
 ## Related

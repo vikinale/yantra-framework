@@ -35,7 +35,7 @@ class TestClient
 
     public function actingAs(int|string $userId, array $roles = [], string $name = 'Test User', string $email = 'test@example.com'): self
     {
-        SessionStore::loginSuccess($userId, $roles, ['email' => $email, 'name' => $name]);
+        SessionStore::loginSuccess($userId, $email, $roles, $name);
         return $this;
     }
     

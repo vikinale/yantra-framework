@@ -68,27 +68,39 @@ final class RateLimitMiddleware
      */
     public function __invoke(Request $request, Response $response, callable $next, array $params = []): Response
     {
+        // Merge per-route middleware params over the constructor-set defaults so that
+        // `->middleware('rate.limit', ['limit' => 10, 'window' => 1])` is honored when
+        // this middleware is resolved as a container instance (the router invokes the
+        // instance's __invoke(), not the static handle()).
+        $limit         = isset($params['limit'])  ? max(1, (int)$params['limit'])  : $this->limit;
+        $windowSeconds = isset($params['window']) ? max(1, (int)$params['window']) : $this->windowSeconds;
+        $key           = isset($params['key'])    ? trim((string)$params['key'])   : $this->key;
+        $by            = isset($params['by'])      ? trim((string)$params['by'])    : $this->by;
+        $message       = isset($params['message']) ? (string)$params['message']    : $this->message;
+        $emitHeaders   = array_key_exists('headers', $params)     ? (bool)$params['headers']     : $this->emitHeaders;
+        $fileCounter   = array_key_exists('fileCounter', $params) ? (bool)$params['fileCounter'] : $this->fileCounter;
+
         $now = time();
 
-        $identifier = $this->identifier($request);
+        $identifier = $this->identifier($by, $request);
         // APCu path (fast)
         if (function_exists('apcu_inc') && function_exists('apcu_add') && ini_get('apc.enabled')) {
-            $bucket = intdiv($now, $this->windowSeconds);
-            $storeKeyBase = sha1($this->key . '|' . $identifier);
+            $bucket = intdiv($now, $windowSeconds);
+            $storeKeyBase = sha1($key . '|' . $identifier);
             $storeKey = $storeKeyBase . ':' . $bucket;
-            [$count, $resetAt] = $this->increment($storeKey, $now);
+            [$count, $resetAt] = $this->increment($storeKey, $now, $windowSeconds);
         }
-        elseif($this->fileCounter){
-            $bucket = intdiv($now, $this->windowSeconds);
-            $storeKeyBase = sha1($this->key . '|' . $identifier);
+        elseif($fileCounter){
+            $bucket = intdiv($now, $windowSeconds);
+            $storeKeyBase = sha1($key . '|' . $identifier);
             $storeKey = $storeKeyBase . ':' . $bucket;
-            [$count, $resetAt] = $this->incrementFileCounter($storeKey, $now);
+            [$count, $resetAt] = $this->incrementFileCounter($storeKey, $now, $windowSeconds);
         }
         else{
-            [$count, $resetAt] = $this->incrementSessionCounter($this->key . '|' . $identifier, $this->windowSeconds);
+            [$count, $resetAt] = $this->incrementSessionCounter($key . '|' . $identifier, $windowSeconds);
         }
 
-        if ($count > $this->limit) {
+        if ($count > $limit) {
             $retryAfter = max(1, $resetAt - $now);
 
             // Ensure Retry-After is present even if ApiResponse is used
@@ -96,22 +108,22 @@ final class RateLimitMiddleware
 
             return ApiResponse::tooManyRequests(
                 $response,
-                message: $this->message,
+                message: $message,
                 retryAfter: $retryAfter,
                 meta: [
-                    'key'       => $this->key,
-                    'limit'     => $this->limit,
-                    'window'    => $this->windowSeconds,
+                    'key'       => $key,
+                    'limit'     => $limit,
+                    'window'    => $windowSeconds,
                     'reset_at'  => $resetAt,
-                    'by'        => $this->by,
+                    'by'        => $by,
                 ]
             );
         }
 
-        if ($this->emitHeaders) {
-            $remaining = max(0, $this->limit - $count);
+        if ($emitHeaders) {
+            $remaining = max(0, $limit - $count);
             $response = $response
-                ->withHeader('X-RateLimit-Limit', (string)$this->limit)
+                ->withHeader('X-RateLimit-Limit', (string)$limit)
                 ->withHeader('X-RateLimit-Remaining', (string)$remaining)
                 ->withHeader('X-RateLimit-Reset', (string)$resetAt);
         }
@@ -119,9 +131,9 @@ final class RateLimitMiddleware
         return $next($request, $response);
     }
 
-    private function identifier(Request $request): string
+    private function identifier(string $by, Request $request): string
     {
-        $by = strtolower($this->by);
+        $by = strtolower($by);
 
         $ip = $this->clientIp($request) ?: 'unknown';
         $route = $this->routeKey($request);
@@ -171,11 +183,11 @@ final class RateLimitMiddleware
     /**
      * Returns [count, resetAt].
      */
-    private function increment(string $storeKey, int $now): array
+    private function increment(string $storeKey, int $now, int $windowSeconds): array
     {
-        $resetAt = (int)(floor($now / $this->windowSeconds) * $this->windowSeconds) + $this->windowSeconds;
+        $resetAt = (int)(floor($now / $windowSeconds) * $windowSeconds) + $windowSeconds;
 
-        if (!apcu_add($storeKey, 1, $this->windowSeconds)) {
+        if (!apcu_add($storeKey, 1, $windowSeconds)) {
             $count = (int)apcu_inc($storeKey, 1);
         } else {
             $count = 1;
@@ -183,9 +195,9 @@ final class RateLimitMiddleware
         return [$count, $resetAt];
     }
 
-    private function incrementFileCounter(string $storeKey, int $now): array
+    private function incrementFileCounter(string $storeKey, int $now, int $windowSeconds): array
     {
-        $resetAt = (int)(floor($now / $this->windowSeconds) * $this->windowSeconds) + $this->windowSeconds;
+        $resetAt = (int)(floor($now / $windowSeconds) * $windowSeconds) + $windowSeconds;
         $dir = rtrim(BASEPATH). DIRECTORY_SEPARATOR . 'storage'. DIRECTORY_SEPARATOR .'ratelimit';
         if (!is_dir($dir)) {
             @mkdir($dir, 0755, true);

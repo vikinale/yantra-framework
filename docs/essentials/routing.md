@@ -99,9 +99,9 @@ $r->get('/profile', 'ProfileController@show')->middleware('auth');
 $r->post('/admin/users', 'Admin\UserController@store')
   ->middleware('auth', ['roles' => 'admin']);
 
-// Middleware with parameters
+// Middleware with parameters (passed as the second-argument array)
 $r->post('/api/data', 'ApiController@store')
-  ->middleware('rate.limit');  // default limit: 60 requests per 60 seconds
+  ->middleware('rate.limit', ['limit' => 60, 'window' => 60]);  // 60 requests per 60 seconds
 ```
 
 See [Middleware](/essentials/middleware) for the built-in aliases and how to write your own.
